@@ -70,7 +70,7 @@ final class SharedInfrastructureTests: XCTestCase {
       max_input_bytes: 256
       block_size: 320
       base: 100
-      alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/\\'\"αβγδεζηθ"
+      alphabet: '1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/`''"αβγδεζηθ'
       prp: "feistel"
       feistel_rounds: 10
       key_hex: "00"
@@ -135,8 +135,8 @@ final class SharedInfrastructureTests: XCTestCase {
 
     private static let invalidOverrideConfig: String = {
         validConfig.replacingOccurrences(
-            of: "      levels_override:\n        capsule.encode: \"debug\"",
-            with: "      levels_override:\n        capsule.encode: \"debug\"\n        unknown.process: \"debug\""
+            of: "        capsule.encode: \"debug\"",
+            with: "        capsule.encode: \"debug\"\n        unknown.process: \"debug\""
         )
     }()
 }

@@ -52,6 +52,34 @@ enum Validation {
     }
 
     private static func ensureAlphabetLength(capsule: ConfigRoot.Capsule) throws {
+        #if DEBUG
+        let s = capsule.alphabet
+        let graphemeCount = s.count
+        let scalarCount = s.unicodeScalars.count
+        let utf8Count = s.utf8.count
+        let uniqueCount = Set(s).count
+
+        var lines: [String] = []
+        lines.reserveCapacity(graphemeCount)
+        var i = 0
+        for ch in s {
+            let scalars = String(ch).unicodeScalars
+                .map { String(format: "U+%04X", $0.value) }
+                .joined(separator: "+")
+            lines.append(String(format: "%03d '%@' [%@]", i, String(ch), scalars))
+            i += 1
+        }
+
+        fputs("""
+        [ConfigCenter] Alphabet diagnostics
+        base=\(capsule.base)
+        graphemes=\(graphemeCount) scalars=\(scalarCount) utf8_bytes=\(utf8Count) unique_graphemes=\(uniqueCount)
+        alphabet="\(s)"
+        indices:\n\(lines.joined(separator: "\n"))
+
+        """, stderr)
+        #endif
+
         if capsule.alphabet.count != capsule.base {
             throw ConfigError.invalidAlphabetLength(expected: capsule.base, actual: capsule.alphabet.count)
         }
@@ -84,6 +112,15 @@ enum Validation {
     }
 
     private static func ensureOverridesWithinRegistry(logging: ConfigRoot.Logging, registry: [String: String]) throws {
+        #if DEBUG
+        let overrideKeys = Array(logging.levelsOverride.keys).sorted()
+        let registryKeys = Array(registry.keys).sorted()
+        fputs("""
+        [ConfigCenter] Overrides check
+        override_keys=[\(overrideKeys.joined(separator: ", "))]
+        registry_keys=[\(registryKeys.joined(separator: ", "))]
+        """, stderr)
+        #endif
         for key in logging.levelsOverride.keys {
             if registry[key] == nil {
                 throw ConfigError.overrideForUnknownProcess(key)
