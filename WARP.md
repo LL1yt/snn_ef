@@ -25,6 +25,7 @@
 - Без fallback, лучше явная ошибка.
 - Максимально задействуем Apple Silicon GPU (Metal/MPS); избегаем CPU, если это мешает GPU‑производительности.
 - Без CLI-флаг - реализуем это через чентральный конфиг, если надо.
+- PipelineSnapshotExporter пишет JSON снапшоты в `paths.pipeline_snapshot`; UI и CLI читают/создают их на лету, LoggingHub хранит timestamp последнего события по `process_id`.
 
 High-level architecture and flow
 

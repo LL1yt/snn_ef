@@ -16,7 +16,6 @@ struct CapsuleCLI {
             try LoggingHub.configure(from: snapshot)
         } catch {
             Diagnostics.fail("Failed to load config: \(error.localizedDescription)", processID: processID)
-            return
         }
 
         let capsuleConfig = snapshot.root.capsule
@@ -28,6 +27,10 @@ struct CapsuleCLI {
 
         let capsule = CapsulePlaceholder()
         LoggingHub.emit(process: "capsule.encode", level: .info, message: capsule.describe())
+
+        if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+            LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")
+        }
 
         let hint = CLIRenderer.hint(for: snapshot.root)
         print(hint)

@@ -25,10 +25,10 @@ _Цель:_ получить минимально рабочий костяк с
 - [x] Интеграционный тест: запуск через `Process.run` с временным конфигом.
 
 ## Шаг 5. UI заглушки + снимок пайплайна
-- [ ] CapsuleUI: отображение `pipeline_example_text`, базовых параметров из конфига.
-- [ ] EnergeticUI: отображение размеров решётки, top-K.
-- [ ] Подготовить JSON-снапшот (пока статический) и кнопку «Reload» (SwiftUI `@State`).
-- [ ] Снапшот тест: проверка, что файл создаётся в `paths.pipeline_snapshot`.
+- [x] CapsuleUI: отображение `pipeline_example_text`, базовых параметров из конфига.
+- [x] EnergeticUI: отображение размеров решётки, топологии и последних событий лога.
+- [x] Подготовить JSON-снапшот (PipelineSnapshotExporter) + кнопки Export/Reload.
+- [x] Тесты: snapshot export/load, CLI интеграция через `Process.run`.
 
 ## Шаг 6. CI Hook (опционально в фазе 1)
 - [ ] Скрипт `Scripts/run_checks.sh`: `swift test`, статический анализ (пока `swift build`).

@@ -73,6 +73,13 @@ public enum LoggingHub {
         queue.sync { }
     }
 
+    public static func lastEventTimestamp(for alias: String) -> Date? {
+        queue.sync {
+            let canonical = (try? ProcessRegistry.resolve(alias)) ?? alias
+            return state.lastEventPerProcess[canonical]
+        }
+    }
+
     // MARK: - Internal helpers
 
     private static func reconfigure(snapshot: ConfigSnapshot, fileManager: FileManager) throws {
@@ -130,6 +137,8 @@ public enum LoggingHub {
                 }
             }
         }
+
+        state.lastEventPerProcess[event.processID] = event.timestamp
     }
 
     private static func prepareDestinations(
@@ -199,6 +208,7 @@ public enum LoggingHub {
         var destinations: [Destination] = [.stdout]
         var timestampKind: ConfigRoot.Logging.TimestampKind = .relative
         var startDate: Date = Date()
+        var lastEventPerProcess: [String: Date] = [:]
     }
 
     private enum Destination {

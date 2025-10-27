@@ -83,7 +83,7 @@ final class CLIntegrationTests: XCTestCase {
         let checkpointsDir = base.appendingPathComponent("Artifacts/Checkpoints").path
         let snapshotsDir = base.appendingPathComponent("Artifacts/Snapshots").path
         let pipelineSnapshot = base.appendingPathComponent("Artifacts/pipeline.json").path
-        let alphabet = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
+        let alphabet = TestConstants.alphabet
 
         return """
         version: 1

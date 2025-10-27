@@ -10,7 +10,7 @@ final class DiagnosticsTests: XCTestCase {
     }
 
     func testFailForTestingThrowsWithCanonicalProcessID() throws {
-        let alphabet = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
+        let alphabet = TestConstants.alphabet
         let paths = ConfigRoot.Paths(
             logsDir: "Logs",
             checkpointsDir: "Artifacts/Checkpoints",

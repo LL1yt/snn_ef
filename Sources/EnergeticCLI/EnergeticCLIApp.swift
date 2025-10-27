@@ -16,7 +16,6 @@ struct EnergeticCLI {
             try LoggingHub.configure(from: snapshot)
         } catch {
             Diagnostics.fail("Failed to load config: \(error.localizedDescription)", processID: processID)
-            return
         }
 
         let routerConfig = snapshot.root.router
@@ -28,6 +27,10 @@ struct EnergeticCLI {
 
         let router = EnergeticRouterPlaceholder()
         LoggingHub.emit(process: "router.forward", level: .info, message: router.describe())
+
+        if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+            LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")
+        }
 
         let hint = CLIRenderer.hint(for: snapshot.root)
         print(hint)

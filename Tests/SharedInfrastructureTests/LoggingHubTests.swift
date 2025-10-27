@@ -59,6 +59,32 @@ final class LoggingHubTests: XCTestCase {
         let contents = try String(contentsOf: logFileURL)
         XCTAssertTrue(contents.contains("allowed-debug"))
         XCTAssertFalse(contents.contains("filtered-debug"))
+        XCTAssertNotNil(LoggingHub.lastEventTimestamp(for: "capsule.encode"))
+        XCTAssertNil(LoggingHub.lastEventTimestamp(for: "router.forward"))
+    }
+
+    func testLastEventTimestampRecordsLatest() throws {
+        let snapshot = makeSnapshot(
+            defaultLevel: .trace,
+            overrides: [:],
+            destinations: [.stdout]
+        )
+        ProcessRegistry.configure(from: snapshot)
+        try LoggingHub.configure(from: snapshot, fileManager: fileManager)
+
+        LoggingHub.emit(process: "capsule.encode", level: .info, message: "first")
+        LoggingHub.waitForDrain()
+        let first = LoggingHub.lastEventTimestamp(for: "capsule.encode")
+        XCTAssertNotNil(first)
+
+        Thread.sleep(forTimeInterval: 0.01)
+        LoggingHub.emit(process: "capsule.encode", level: .info, message: "second")
+        LoggingHub.waitForDrain()
+        let second = LoggingHub.lastEventTimestamp(for: "capsule.encode")
+        XCTAssertNotNil(second)
+        if let first, let second {
+            XCTAssertTrue(second >= first)
+        }
     }
 
     // MARK: - Helpers
