@@ -7,15 +7,15 @@ _С определённой долей вероятности ≈ 85 %: еди�
 ## 1. Верхний уровень
 
 ```yaml
-version: 1 # int, инкрементируем при изменении схемы
-profile: "baseline" # читаемое имя набора параметров
-seed: 42 # общий сид для воспроизводимости
-logging: { ... } # см. раздел 2
-process_registry: { ... } # см. раздел 3
-paths: { ... } # директории/файлы артефактов
-capsule: { ... } # настройки reversible capsule
-router: { ... } # настройки SNN-router
-ui: { ... } # визуализация/CLI
+version: 1                  # int, инкрементируем при изменении схемы
+profile: "baseline"         # читаемое имя набора параметров
+seed: 42                    # общий сид для воспроизводимости
+logging: {...}              # см. раздел 2
+process_registry: {...}     # см. раздел 3
+paths: {...}                # директории/файлы артефактов
+capsule: {...}              # настройки reversible capsule
+router: {...}               # настройки SNN-router
+ui: {...}                   # визуализация/CLI
 ```
 
 Дополнительно допустимы только поля `notes` (строка) и `metadata` (map<string,string>) для комментариев.
@@ -26,8 +26,8 @@ ui: { ... } # визуализация/CLI
 
 ```yaml
 logging:
-  default_level: "info" # trace|debug|info|warn|error
-  signposts: true # включать os_signpost маркеры
+  default_level: "info"             # trace|debug|info|warn|error
+  signposts: true                   # включать os_signpost маркеры
   destinations:
     - type: "stdout"
     - type: "file"
@@ -37,7 +37,7 @@ logging:
     router.forward: "debug"
     router.local_hebb: "trace"
     ui.pipeline: "info"
-  timestamp_kind: "relative" # relative|absolute (по умолчанию relative)
+  timestamp_kind: "relative"        # relative|absolute (по умолчанию relative)
 ```
 
 - `destinations` — упорядоченный список без дубликатов. Минимум один пункт.
@@ -96,17 +96,16 @@ capsule:
   block_size: 320
   base: 100
   alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
-  prp: "feistel" # feistel|aes|gpu_feistel
+  prp: "feistel"                    # feistel|aes|gpu_feistel
   feistel_rounds: 10
   key_hex: "000102030405060708090a0b0c0d0e0f"
-  normalization: "e_over_bplus1" # e_over_bplus1|none|custom
+  normalization: "e_over_bplus1"    # e_over_bplus1|none|custom
   pipeline_example_text: "Hello, Energetic Router!"
-  crc: "crc32" # crc32|crc32c
-  gpu_batch: 512 # размер батча для GPU-конверсий (>=1)
+  crc: "crc32"                      # crc32|crc32c
+  gpu_batch: 512                    # размер батча для GPU-конверсий (>=1)
 ```
 
 Constraints:
-
 - `block_size` ≥ `max_input_bytes + header_size` (ConfigCenter проверяет, header = 7 байт в MVP).
 - Алфавит строго длины `base` (в примере — 100 символов без повтора).
 - `enabled` можно выключить для чистых тестов роутера.
@@ -132,7 +131,7 @@ router:
     max_dx: 10
     min_dx: 1
     max_dy: 64
-    energy_base: 100 # должно совпадать с capsule.base
+    energy_base: 100            # должно совпадать с capsule.base
   optimizer:
     type: "adam"
     lr: 1.0e-3
@@ -142,8 +141,8 @@ router:
   entropy_reg: 0.01
   batch_size: 32
   epochs: 5
-  backend: "cpu" # cpu|gpu
-  task: "addition" # доменная задача
+  backend: "cpu"                # cpu|gpu
+  task: "addition"              # доменная задача
   headless: false
   checkpoints:
     every_steps: 100
@@ -156,7 +155,6 @@ router:
 ```
 
 Constraints:
-
 - `energy_constraints.energy_base` = `capsule.base` (валидация).
 - Если `local_learning.enabled = true`, ConfigCenter требует `process_registry.router.local_hebb`.
 
@@ -286,7 +284,6 @@ ui:
 ---
 
 ## 9. Правила валидации (коротко)
-
 - Все числовые параметры ≥0; ConfigCenter проверяет диапазоны (`max_dx ≥ min_dx ≥ 1`, `layers ≥ 1`, `nodes_per_layer ≥ 1` и т.п.).
 - Строковые перечисления проверяются на допустимые значения.
 - Логи: override может ссылаться лишь на существующий `process_id`; для файловых назначений путь обязателен.

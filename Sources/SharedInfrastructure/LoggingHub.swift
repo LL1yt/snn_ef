@@ -57,6 +57,11 @@ public enum LoggingHub {
         }
     }
 
+    public static func emit(process alias: String, level: LogLevel, message: String, timestamp: Date = .init()) {
+        let processID = (try? ProcessRegistry.resolve(alias)) ?? alias
+        emit(LogEvent(timestamp: timestamp, processID: processID, level: level, message: message))
+    }
+
     public static func reset() {
         queue.sync {
             closeDestinations(state.destinations)

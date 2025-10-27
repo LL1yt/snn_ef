@@ -20,9 +20,9 @@ _Цель:_ получить минимально рабочий костяк с
 - [x] Diagnostics.fail → лог и `preconditionFailure` (для тестов доступен `failForTesting`).
 
 ## Шаг 4. CLI wire-up
-- [ ] `CapsuleCLI` читает конфиг, логирует `capsule`-секцию, выводит подсказку по UI/бенчмарку.
-- [ ] `EnergeticCLI` аналогично для `router`.
-- [ ] Интеграционный тест: запуск через `swift test --filter` с фиктивным конфигом (используем `Process.run`).
+- [x] `CapsuleCLI` читает конфиг (поддержка `SNN_CONFIG_PATH`), логирует `capsule`-секцию, выводит подсказку по UI/бенчмарку.
+- [x] `EnergeticCLI` аналогично для `router`.
+- [x] Интеграционный тест: запуск через `Process.run` с временным конфигом.
 
 ## Шаг 5. UI заглушки + снимок пайплайна
 - [ ] CapsuleUI: отображение `pipeline_example_text`, базовых параметров из конфига.

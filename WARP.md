@@ -31,8 +31,8 @@ High-level architecture and flow
 - SharedInfrastructure (common to both modules)
 
   - ConfigCenter: single source of truth for config. Reads YAML, validates all keys, enforces invariants, and provides an immutable snapshot per step. CLI/UI use the same snapshot; changes require restart.
-  - LoggingHub: centralized logging with levels (trace|debug|info|warn|error) and required process_id for every event. Supports os_signpost for profiling.
-  - ProcessRegistry: canonical process_id dictionary for all pipeline stages (e.g., capsule.encode, router.forward, router.local_hebb, ui.pipeline, cli.main). Logging overrides reference only registered ids.
+  - LoggingHub: centralized logging with levels (trace|debug|info|warn|error) и helper `emit(process:alias, ...)` — alias всегда переводится в canonical id. Поддерживает stdout/file destinations, относительное/абсолютное время и os_signpost.
+  - ProcessRegistry: canonical process_id dictionary for all pipeline stages (e.g., capsule.encode, router.forward, router.local_hebb, ui.pipeline, cli.main). ConfigCenter.merge обновляет mapping; `resolve` бросает ошибку на неизвестный alias.
 
 - ReversibleCapsule
 
@@ -51,7 +51,7 @@ High-level architecture and flow
 
 Repository conventions (planned per docs)
 
-- Configs: Configs/\*.yaml with a complete profile that covers logging, process_registry, paths, capsule, router, ui. The example baseline profile is in Docs/config_center_schema.md.
+- Configs: Configs/\*.yaml with a complete profile that covers logging, process_registry, paths, capsule, router, ui. The example baseline profile is in Docs/config_center_schema.md. CLI поддерживает `SNN_CONFIG_PATH` для указания временного конфига без правок репо.
 - Artifacts: Logs/, Artifacts/Checkpoints/, Artifacts/Snapshots/, and Artifacts/pipeline_snapshot.json. ConfigCenter normalizes and creates paths on startup.
 
 Key config invariants (from Docs/config_center_schema.md)

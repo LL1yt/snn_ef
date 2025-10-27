@@ -94,7 +94,7 @@ final class SharedInfrastructureTests: XCTestCase {
       max_input_bytes: 256
       block_size: 320
       base: 100
-      alphabet: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ'
+      alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
       prp: "feistel"
       feistel_rounds: 10
       key_hex: "00"

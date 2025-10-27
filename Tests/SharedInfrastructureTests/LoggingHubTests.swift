@@ -31,9 +31,10 @@ final class LoggingHubTests: XCTestCase {
             overrides: [:],
             destinations: [.file(path: logFileURL.path)]
         )
+        ProcessRegistry.configure(from: snapshot)
         try LoggingHub.configure(from: snapshot, fileManager: fileManager)
 
-        LoggingHub.emit(LogEvent(processID: "capsule.encode", level: .info, message: "hello-world"))
+        LoggingHub.emit(process: "capsule.encode", level: .info, message: "hello-world")
         LoggingHub.waitForDrain()
 
         let contents = try String(contentsOf: logFileURL)
@@ -48,10 +49,11 @@ final class LoggingHubTests: XCTestCase {
             overrides: ["capsule.encode": .debug],
             destinations: [.file(path: logFileURL.path)]
         )
+        ProcessRegistry.configure(from: snapshot)
         try LoggingHub.configure(from: snapshot, fileManager: fileManager)
 
-        LoggingHub.emit(LogEvent(processID: "capsule.encode", level: .debug, message: "allowed-debug"))
-        LoggingHub.emit(LogEvent(processID: "router.forward", level: .debug, message: "filtered-debug"))
+        LoggingHub.emit(process: "capsule.encode", level: .debug, message: "allowed-debug")
+        LoggingHub.emit(process: "router.forward", level: .debug, message: "filtered-debug")
         LoggingHub.waitForDrain()
 
         let contents = try String(contentsOf: logFileURL)
@@ -90,7 +92,7 @@ final class LoggingHubTests: XCTestCase {
             pipelineSnapshot: tempDir.appendingPathComponent("pipeline.json").path
         )
 
-        let alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
+        let alphabet = TestConstants.alphabet
 
         let capsule = ConfigRoot.Capsule(
             enabled: true,
@@ -160,4 +162,8 @@ final class LoggingHubTests: XCTestCase {
         case stdout
         case file(path: String)
     }
+}
+
+private enum TestConstants {
+    static let alphabet = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
 }
