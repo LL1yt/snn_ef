@@ -18,15 +18,52 @@ struct CapsuleCLI {
             Diagnostics.fail("Failed to load config: \(error.localizedDescription)", processID: processID)
         }
 
-        let capsuleConfig = snapshot.root.capsule
+        let cfg = snapshot.root.capsule
         LoggingHub.emit(
             process: "cli.main",
             level: .info,
-            message: "Capsule config loaded from \(snapshot.sourceURL.path) · base=\(capsuleConfig.base), block_size=\(capsuleConfig.blockSize)"
+            message: "Capsule config loaded from \(snapshot.sourceURL.path) · base=\(cfg.base), block_size=\(cfg.blockSize)"
         )
 
-        let capsule = CapsulePlaceholder()
-        LoggingHub.emit(process: "capsule.encode", level: .info, message: capsule.describe())
+        let args = Array(CommandLine.arguments.dropFirst())
+        if args.isEmpty {
+            printUsage(snapshot: snapshot)
+            return
+        }
+
+        switch args[0] {
+        case "encode":
+            let input = args.dropFirst().joined(separator: " ")
+            do {
+                let data = Data(input.utf8)
+                let encoder = CapsuleEncoder(config: cfg)
+                let block = try encoder.encode(data)
+                let digits = ByteDigitsConverter.toDigits(bytes: block.bytes, baseB: cfg.base)
+                let printable = DigitStringConverter.digitsToString(digits, alphabet: cfg.alphabet)
+                LoggingHub.emit(process: "capsule.encode", level: .info, message: "encoded bytes=\(data.count) digits=\(digits.count)")
+                print(printable)
+            } catch {
+                Diagnostics.fail("encode failed: \(error.localizedDescription)", processID: processID)
+            }
+
+        case "decode":
+            let printable = args.dropFirst().joined(separator: " ")
+            do {
+                let digits = DigitStringConverter.stringToDigits(printable, alphabet: cfg.alphabet)
+                let bytes = ByteDigitsConverter.toBytes(digitsMSDFirst: digits, baseB: cfg.base, byteCount: cfg.blockSize)
+                let block = try CapsuleBlock(blockSize: cfg.blockSize, bytes: bytes)
+                let decoder = CapsuleDecoder(config: cfg)
+                let data = try decoder.decode(block)
+                let text = String(decoding: data, as: UTF8.self)
+                LoggingHub.emit(process: "capsule.decode", level: .info, message: "decoded bytes=\(data.count)")
+                print(text)
+            } catch {
+                Diagnostics.fail("decode failed: \(error.localizedDescription)", processID: processID)
+            }
+
+        default:
+            printUsage(snapshot: snapshot)
+        }
 
         if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
             LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")
@@ -34,5 +71,15 @@ struct CapsuleCLI {
 
         let hint = CLIRenderer.hint(for: snapshot.root)
         print(hint)
+    }
+
+    private static func printUsage(snapshot: ConfigSnapshot) {
+        let cfg = snapshot.root.capsule
+        let usage = """
+        Usage:
+          capsule-cli encode <text>   # encodes UTF-8 text into base-\(cfg.base) printable string (fixed length)
+          capsule-cli decode <digits> # decodes printable base-\(cfg.base) string back to UTF-8 text
+        """.trimmingCharacters(in: .whitespacesAndNewlines)
+        print(usage)
     }
 }

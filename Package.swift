@@ -63,7 +63,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CapsuleCoreTests",
-            dependencies: ["CapsuleCore"],
+            dependencies: ["CapsuleCore", "SharedInfrastructure"],
             path: "Tests/CapsuleCoreTests"
         ),
         .testTarget(
