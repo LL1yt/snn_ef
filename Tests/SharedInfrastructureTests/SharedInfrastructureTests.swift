@@ -134,9 +134,13 @@ final class SharedInfrastructureTests: XCTestCase {
     }()
 
     private static let invalidOverrideConfig: String = {
-        validConfig.replacingOccurrences(
-            of: "        capsule.encode: \"debug\"",
-            with: "        capsule.encode: \"debug\"\n        unknown.process: \"debug\""
-        )
+        let nl = "\n"
+        var lines = validConfig.components(separatedBy: nl)
+        if let idx = lines.firstIndex(where: { $0.contains("levels_override:") }) {
+            let indent = lines[idx].prefix { $0 == " " }
+            let childIndent = String(indent) + "  "
+            lines.insert(childIndent + "unknown.process: \"debug\"", at: min(idx + 1, lines.count))
+        }
+        return lines.joined(separator: nl)
     }()
 }
