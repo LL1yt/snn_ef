@@ -112,15 +112,6 @@ enum Validation {
     }
 
     private static func ensureOverridesWithinRegistry(logging: ConfigRoot.Logging, registry: [String: String]) throws {
-        #if DEBUG
-        let overrideKeys = Array(logging.levelsOverride.keys).sorted()
-        let registryKeys = Array(registry.keys).sorted()
-        fputs("""
-        [ConfigCenter] Overrides check
-        override_keys=[\(overrideKeys.joined(separator: ", "))]
-        registry_keys=[\(registryKeys.joined(separator: ", "))]
-        """, stderr)
-        #endif
         for key in logging.levelsOverride.keys {
             if registry[key] == nil {
                 throw ConfigError.overrideForUnknownProcess(key)
@@ -140,6 +131,9 @@ public enum ConfigError: LocalizedError {
     case noLoggingDestinations
     case duplicateProcessIdentifier
     case overrideForUnknownProcess(String)
+    case missingLogFilePath
+    case failedToCreateLogFile(URL)
+    case failedToOpenLogFile(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -159,6 +153,12 @@ public enum ConfigError: LocalizedError {
             return "Process registry contains duplicate canonical identifiers"
         case let .overrideForUnknownProcess(key):
             return "Logging override references unknown process_id '\(key)'"
+        case .missingLogFilePath:
+            return "Logging destination of type 'file' requires non-empty path"
+        case let .failedToCreateLogFile(url):
+            return "Failed to create log file at \(url.path)"
+        case let .failedToOpenLogFile(url):
+            return "Failed to open log file at \(url.path)"
         }
     }
 }

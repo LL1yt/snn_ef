@@ -70,3 +70,4 @@ EnergyFlowSwift/.swiftpm
 *.xcuserstate
 .swiftpm
 .build
+Logs/

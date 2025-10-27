@@ -3,16 +3,16 @@
 _Цель:_ получить минимально рабочий костяк с единой конфигурацией, базовым логированием и заглушками UI, покрывая каждый шаг тестами.
 
 ## Шаг 1. ConfigCenter MVP
-- [ ] Реализовать загрузку YAML (`Docs/config_center_schema.md`) → `ConfigSnapshot`.
-- [ ] Проверка обязательных ключей, валидация `capsule.base == router.energy_constraints.energy_base`.
-- [ ] Юнит-тесты: happy-path конфиг, отсутствующий ключ, несогласованные базы.
-- [ ] CLI-утилиты автоматически читают `Configs/baseline.yaml` (без флагов); при отсутствии файла — fail-fast.
+- [x] Реализовать загрузку YAML (`Docs/config_center_schema.md`) → `ConfigSnapshot`.
+- [x] Проверка обязательных ключей, валидация `capsule.base == router.energy_constraints.energy_base`.
+- [x] Юнит-тесты: happy-path конфиг, отсутствующий ключ, несогласованные базы.
+- [x] CLI-утилиты автоматически читают `Configs/baseline.yaml` (без флагов); при отсутствии файла — fail-fast.
 
 ## Шаг 2. LoggingHub маршрутизация
-- [ ] Конфигурируемые destination: stdout + файл (`Logs/*.log`).
-- [ ] Поддержка override уровней по `process_id`.
-- [ ] Тесты:форматирование события, honor override, файл создаётся.
-- [ ] Добавить метрику времени (relative) и вытащить в `LogEvent`.
+- [x] Конфигурируемые destination: stdout + файл (`Logs/*.log`).
+- [x] Поддержка override уровней по `process_id`.
+- [x] Тесты:форматирование события, honor override, файл создаётся.
+- [x] Добавить метрику времени (relative) и вытащить в `LogEvent`.
 
 ## Шаг 3. ProcessRegistry & Diagnostics
 - [ ] Загрузка реестра из конфига (override, merge с дефолтом).
