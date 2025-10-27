@@ -15,9 +15,9 @@ _Цель:_ получить минимально рабочий костяк с
 - [x] Добавить метрику времени (relative) и вытащить в `LogEvent`.
 
 ## Шаг 3. ProcessRegistry & Diagnostics
-- [ ] Загрузка реестра из конфига (override, merge с дефолтом).
-- [ ] Тест: неизвестный alias → error.
-- [ ] Diagnostics.fail → лог и `preconditionFailure` (ловим в тестах).
+- [x] Загрузка реестра из конфига (override, merge с дефолтом).
+- [x] Тест: неизвестный alias → error.
+- [x] Diagnostics.fail → лог и `preconditionFailure` (для тестов доступен `failForTesting`).
 
 ## Шаг 4. CLI wire-up
 - [ ] `CapsuleCLI` читает конфиг, логирует `capsule`-секцию, выводит подсказку по UI/бенчмарку.

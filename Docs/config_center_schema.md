@@ -95,7 +95,7 @@ capsule:
   max_input_bytes: 256
   block_size: 320
   base: 100
-  alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.:,() "
+  alphabet: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,ΑΒΓΔΕΖΗΘΙΚ"
   prp: "feistel"                    # feistel|aes|gpu_feistel
   feistel_rounds: 10
   key_hex: "000102030405060708090a0b0c0d0e0f"
@@ -224,7 +224,7 @@ capsule:
   max_input_bytes: 256
   block_size: 320
   base: 100
-  alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.:,() "
+  alphabet: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,ΑΒΓΔΕΖΗΘΙΚ"
   prp: "feistel"
   feistel_rounds: 10
   key_hex: "000102030405060708090a0b0c0d0e0f"

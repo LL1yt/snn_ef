@@ -3,8 +3,31 @@ import XCTest
 @testable import SharedInfrastructure
 
 final class SharedInfrastructureTests: XCTestCase {
-    func testProcessRegistryResolvesKnownID() {
-        XCTAssertEqual(ProcessRegistry.resolve("capsule.encode"), "capsule.encode")
+    override func setUp() {
+        super.setUp()
+        ProcessRegistry.reset()
+    }
+
+    func testProcessRegistryResolvesKnownID() throws {
+        XCTAssertEqual(try ProcessRegistry.resolve("capsule.encode"), "capsule.encode")
+    }
+
+    func testProcessRegistryConfigureMergesAliases() throws {
+        let config = Self.validConfig.replacingOccurrences(
+            of: "  router.forward: \"router.forward\"",
+            with: "  router.forward: \"router.forward\"\n  custom.alias: \"custom.canonical\""
+        )
+        let url = try makeTemporaryConfig(contents: config)
+        let snapshot = try ConfigCenter.load(url: url)
+        ProcessRegistry.configure(from: snapshot)
+
+        XCTAssertEqual(try ProcessRegistry.resolve("custom.alias"), "custom.canonical")
+    }
+
+    func testProcessRegistryThrowsOnUnknownAlias() {
+        XCTAssertThrowsError(try ProcessRegistry.resolve("unknown.alias")) { error in
+            XCTAssertEqual(error as? ProcessRegistryError, .unknownAlias("unknown.alias"))
+        }
     }
 
     func testConfigCenterLoadsBaselineConfig() throws {
@@ -71,7 +94,7 @@ final class SharedInfrastructureTests: XCTestCase {
       max_input_bytes: 256
       block_size: 320
       base: 100
-      alphabet: '1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/`''"αβγδεζηθ'
+      alphabet: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ'
       prp: "feistel"
       feistel_rounds: 10
       key_hex: "00"
@@ -137,10 +160,10 @@ final class SharedInfrastructureTests: XCTestCase {
     private static let invalidOverrideConfig: String = {
         let nl = "\n"
         var lines = validConfig.components(separatedBy: nl)
-        if let idx = lines.firstIndex(where: { $0.contains("levels_override:") }) {
-            let indent = lines[idx].prefix { $0 == " " }
-            let childIndent = String(indent) + "  "
-            lines.insert(childIndent + "unknown.process: \"debug\"", at: min(idx + 1, lines.count))
+        if let idx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "levels_override:" }) {
+            let indentCount = lines[idx].prefix { $0 == " " }.count
+            let childIndent = String(repeating: " ", count: indentCount + 2)
+            lines.insert(childIndent + "unknown.process: \"debug\"", at: idx + 1)
         }
         return lines.joined(separator: nl)
     }()

@@ -14,6 +14,7 @@ final class LoggingHubTests: XCTestCase {
         tempDir = base
         logFileURL = tempDir.appendingPathComponent("test.log", isDirectory: false)
         LoggingHub.reset()
+        ProcessRegistry.reset()
     }
 
     override func tearDownWithError() throws {
@@ -89,7 +90,7 @@ final class LoggingHubTests: XCTestCase {
             pipelineSnapshot: tempDir.appendingPathComponent("pipeline.json").path
         )
 
-        let alphabet = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/\\'\"αβγδεζηθ"
+        let alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
 
         let capsule = ConfigRoot.Capsule(
             enabled: true,

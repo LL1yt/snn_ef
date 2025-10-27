@@ -5,15 +5,15 @@ import SharedInfrastructure
 @main
 struct EnergeticCLI {
     static func main() {
-        let processID = ProcessRegistry.resolve("cli.main")
+        let processID = (try? ProcessRegistry.resolve("cli.main")) ?? "cli.main"
 
         let snapshot: ConfigSnapshot
         do {
             snapshot = try ConfigCenter.load()
+            ProcessRegistry.configure(from: snapshot)
             try LoggingHub.configure(from: snapshot)
         } catch {
             Diagnostics.fail("Failed to load config: \(error.localizedDescription)", processID: processID)
-        return
         }
 
         let routerConfig = snapshot.root.router
