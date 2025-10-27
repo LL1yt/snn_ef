@@ -15,9 +15,15 @@ let package = Package(
         .executable(name: "capsule-cli", targets: ["CapsuleCLI"]),
         .executable(name: "energetic-cli", targets: ["EnergeticCLI"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/jpsim/Yams.git", from: "5.1.0")
+    ],
     targets: [
         .target(
             name: "SharedInfrastructure",
+            dependencies: [
+                .product(name: "Yams", package: "Yams")
+            ],
             path: "Sources/SharedInfrastructure"
         ),
         .target(

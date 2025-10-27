@@ -1,6 +1,6 @@
 import Foundation
 
-public enum LogLevel: String, Sendable {
+public enum LogLevel: String, Sendable, Decodable {
     case trace, debug, info, warn, error
 }
 
