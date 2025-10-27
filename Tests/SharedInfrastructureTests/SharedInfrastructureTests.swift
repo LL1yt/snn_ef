@@ -54,7 +54,8 @@ final class SharedInfrastructureTests: XCTestCase {
       signposts: true
       destinations:
         - type: "stdout"
-      levels_override: {}
+      levels_override:
+        capsule.encode: "debug"
       timestamp_kind: "relative"
     process_registry:
       capsule.encode: "capsule.encode"
@@ -69,7 +70,7 @@ final class SharedInfrastructureTests: XCTestCase {
       max_input_bytes: 256
       block_size: 320
       base: 100
-      alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.:,() "
+      alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:,()[]{}<>!?@#$%^&*+=~`|/\\\"' \u0001\u0002\u0003\u0004\u0005"
       prp: "feistel"
       feistel_rounds: 10
       key_hex: "00"

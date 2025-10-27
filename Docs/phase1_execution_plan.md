@@ -6,7 +6,7 @@ _Цель:_ получить минимально рабочий костяк с
 - [ ] Реализовать загрузку YAML (`Docs/config_center_schema.md`) → `ConfigSnapshot`.
 - [ ] Проверка обязательных ключей, валидация `capsule.base == router.energy_constraints.energy_base`.
 - [ ] Юнит-тесты: happy-path конфиг, отсутствующий ключ, несогласованные базы.
-- [ ] CLI-флаг `--config` подключить к `CapsuleCLI` и `EnergeticCLI` (пока просто читает файл, логирует успех).
+- [ ] CLI-утилиты автоматически читают `Configs/baseline.yaml` (без флагов); при отсутствии файла — fail-fast.
 
 ## Шаг 2. LoggingHub маршрутизация
 - [ ] Конфигурируемые destination: stdout + файл (`Logs/*.log`).
