@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import SharedInfrastructure
 
 enum PRP {
     // Applies Feistel network over the payload (bytes after header), leaving header intact.

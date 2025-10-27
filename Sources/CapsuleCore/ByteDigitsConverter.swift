@@ -5,7 +5,7 @@ public enum ByteDigitsConverter {
     public static func toDigits(bytes: [UInt8], baseB: Int) -> [Int] {
         precondition(baseB >= 2)
         let nDigits = requiredDigitsCount(byteCount: bytes.count, baseB: baseB)
-        let converted = convertBase(input: bytes.map(Int), fromBase: 256, toBase: baseB)
+        let converted = convertBase(input: bytes.map { Int($0) }, fromBase: 256, toBase: baseB)
         // converted is MSD-first; pad with leading zeros to fixed length
         if converted.count >= nDigits { return converted.suffix(nDigits).map { $0 } }
         let padding = Array(repeating: 0, count: nDigits - converted.count)
