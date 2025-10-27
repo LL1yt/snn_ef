@@ -189,7 +189,3 @@ final class LoggingHubTests: XCTestCase {
         case file(path: String)
     }
 }
-
-private enum TestConstants {
-    static let alphabet = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
-}

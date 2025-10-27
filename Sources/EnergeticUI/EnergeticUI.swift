@@ -47,16 +47,13 @@ public struct EnergeticUIPreview: View {
                 HStack {
                     Button("Refresh Metrics") {
                         lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.forward")
-                        if let root = snapshot?.root {
-                            loadedSnapshot = PipelineSnapshotExporter.load(from: root)
-                        }
+                        let root = snapshot.root
+                        loadedSnapshot = PipelineSnapshotExporter.load(from: root)
                     }
                     Button("Export Snapshot") {
-                        if let snapshot = snapshot {
-                            if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
-                                loadedSnapshot = exported
-                                lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.forward")
-                            }
+                        if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+                            loadedSnapshot = exported
+                            lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.forward")
                         }
                     }
                 }
