@@ -1,0 +1,309 @@
+# CapsulePipeline Visualization — Быстрый старт
+
+## Что реализовано (Фазы 1-6)
+
+✅ **Полная интерактивная визуализация пайплайна CapsuleCore**
+- 10 этапов трансформации
+- Детальные view для каждого этапа
+- Интерактивная навигация
+- Метрики производительности
+- CRC verification
+
+## Запуск в Xcode (рекомендуется для тестирования)
+
+### Шаг 1: Создайте новый macOS App target
+
+В Xcode:
+1. File → New → Target
+2. Выберите "macOS → App"
+3. Назовите "CapsulePipelineDemo"
+
+### Шаг 2: Создайте главный файл
+
+В `CapsulePipelineDemo/CapsulePipelineDemoApp.swift`:
+
+```swift
+import SwiftUI
+import CapsuleUI
+import SharedInfrastructure
+
+@main
+struct CapsulePipelineDemoApp: App {
+    init() {
+        // Инициализация конфигурации
+        do {
+            let snapshot = try ConfigCenter.load()
+            try LoggingHub.configure(from: snapshot)
+            ProcessRegistry.configure(from: snapshot)
+
+            print("✅ Config loaded from: \(snapshot.sourceURL.path)")
+        } catch {
+            print("❌ Config error: \(error)")
+        }
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            if let snapshot = try? ConfigCenter.load() {
+                CapsulePipelineView(config: snapshot.root.capsule)
+                    .frame(minWidth: 900, minHeight: 600)
+            } else {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 48))
+                        .foregroundColor(.red)
+                    Text("Failed to load configuration")
+                        .font(.headline)
+                    Text("Check SNN_CONFIG_PATH environment variable")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+            }
+        }
+        .windowStyle(.automatic)
+        .commands {
+            // Можно добавить custom menu commands
+        }
+    }
+}
+```
+
+### Шаг 3: Настройте Environment Variable
+
+1. Product → Scheme → Edit Scheme (или Cmd+<)
+2. Run → Arguments → Environment Variables
+3. Добавьте:
+   ```
+   Name:  SNN_CONFIG_PATH
+   Value: /полный/путь/к/snn_ef/Configs/baseline.yaml
+   ```
+
+   Например:
+   ```
+   /Users/username/Projects/snn_ef/Configs/baseline.yaml
+   ```
+
+### Шаг 4: Добавьте зависимости
+
+В target settings:
+1. General → Frameworks and Libraries
+2. Добавьте:
+   - `CapsuleUI`
+   - `CapsuleCore`
+   - `SharedInfrastructure`
+
+### Шаг 5: Запустите
+
+1. Выберите схему "CapsulePipelineDemo"
+2. Cmd+R (Run)
+
+## Проверка работы
+
+### 1. Проверка CLI (перед UI)
+
+Сначала убедитесь, что backend работает:
+
+```bash
+# Установите конфиг
+export SNN_CONFIG_PATH=/path/to/snn_ef/Configs/baseline.yaml
+
+# Тест encode
+swift run capsule-cli encode "Hello, World!"
+
+# Должно вывести печатную строку фиксированной длины
+
+# Тест decode (вставьте вывод encode)
+swift run capsule-cli decode "<вывод encode>"
+
+# Должно вернуть "Hello, World!"
+```
+
+### 2. Тестовые сценарии для UI
+
+После запуска CapsulePipelineDemo:
+
+#### Сценарий 1: Базовый roundtrip
+1. Введите текст: `Hello, Capsule!`
+2. Нажмите "Execute Pipeline"
+3. Проверьте:
+   - ✅ Все 10 этапов показаны
+   - ✅ CRC Verification: PASS
+   - ✅ Recovered text = Input text
+
+#### Сценарий 2: Навигация
+1. Выполните pipeline
+2. Используйте кнопки:
+   - ▶️ Next: переход к следующему этапу
+   - ◀️ Previous: возврат назад
+   - ▶️ Play: автовоспроизведение (1.5s между этапами)
+   - 🔄 Reset: возврат к началу
+
+#### Сценарий 3: Детали этапов
+1. Выполните pipeline
+2. Кликните на заголовок любого этапа
+3. Проверьте:
+   - Hex dumps корректно форматированы
+   - Digits таблицы показаны
+   - Метрики времени отображены
+
+#### Сценарий 4: Разные входы
+Протестируйте с разными текстами:
+
+**Короткий:**
+```
+Hi
+```
+
+**Средний:**
+```
+The quick brown fox jumps over the lazy dog
+```
+
+**Юникод:**
+```
+Привет, мир! 🌍
+```
+
+**Близкий к максимуму (max_input_bytes=256):**
+```
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+Nisi ut aliquip ex ea commodo consequat...
+```
+
+#### Сценарий 5: Проверка метрик
+1. Выполните pipeline
+2. В sidebar → Metrics Panel:
+   - Проверьте "Total Duration"
+   - Проверьте "Slowest Stage"
+   - Сравните время разных этапов
+
+### 3. Проверка логов
+
+```bash
+# Просмотр логов UI pipeline
+tail -f Logs/baseline.log | grep ui.pipeline
+
+# Должны видеть:
+# [info] ui.pipeline: Starting roundtrip pipeline
+# [debug] ui.pipeline.input: Input stage: 13 bytes
+# [debug] ui.pipeline.block: Block structure: header=7 payload=13 padding=300
+# [debug] ui.pipeline.prp: PRP applied: feistel, 10 rounds
+# ...
+```
+
+## Известные паттерны/ожидаемое поведение
+
+### Hex Dumps
+- Формат: `ADDRESS | HEX BYTES | ASCII`
+- Пример:
+  ```
+  00000000 | 00 0D 00 8C 7C 4D 0A 48 | .....|M.H
+  ```
+
+### Digits Table
+- Grid 10 columns
+- Показывает `[index]: digit`
+- Для больших массивов: first 50 + last 10
+
+### Energies Distribution
+- Min/Max/Mean/Sum
+- Top-5 самых частых значений
+- Range: [1..100] для base=100
+
+### CRC Verification
+- ✅ **PASS** (зелёный): текст восстановлен точно
+- ❌ **FAIL** (красный): ошибка восстановления
+  - Показывается comparison original vs recovered
+
+## Troubleshooting
+
+### UI не запускается
+
+**Ошибка:** "Failed to load configuration"
+
+**Решение:**
+1. Проверьте `SNN_CONFIG_PATH` в Scheme
+2. Убедитесь, что путь абсолютный (начинается с `/`)
+3. Проверьте, что файл существует:
+   ```bash
+   ls -la $SNN_CONFIG_PATH
+   ```
+
+### Компиляция не проходит
+
+**Ошибка:** Type 'PipelineSnapshot' is ambiguous
+
+**Решение:** Уже исправлено — старый PipelineSnapshot переименован в ConfigPipelineSnapshot
+
+**Ошибка:** Missing imports
+
+**Решение:** Убедитесь, что в target добавлены все зависимости:
+- CapsuleUI
+- CapsuleCore
+- SharedInfrastructure
+
+### CRC всегда fails
+
+**Проблема:** Неправильный алфавит или base
+
+**Решение:** Проверьте в `Configs/baseline.yaml`:
+```yaml
+capsule:
+  base: 100
+  alphabet: "1234567890abcdef..." # Должно быть ровно 100 символов
+```
+
+### Медленная работа
+
+**Проблема:** Debug build медленный
+
+**Решение:**
+1. В Xcode: Product → Scheme → Edit Scheme
+2. Run → Build Configuration → Release
+3. Или соберите:
+   ```bash
+   swift build -c release
+   ```
+
+## Следующие шаги (Phase 7)
+
+После успешного запуска UI:
+
+1. **Тестирование edge cases:**
+   - Пустая строка
+   - Очень длинная строка (близкая к max_input_bytes)
+   - Невалидный UTF-8
+   - Символы за пределами алфавита
+
+2. **Performance profiling:**
+   - Открыть Instruments
+   - Profile → Time Profiler
+   - Проверить hotspots в PipelineExecutor
+
+3. **UI polish:**
+   - Настроить spacing/padding
+   - Добавить tooltips
+   - Улучшить error messages
+
+4. **Документация:**
+   - Добавить комментарии в код
+   - Создать примеры использования
+   - Записать demo video
+
+## Feedback
+
+Если визуализация работает:
+✅ Отметьте Phase 7 как completed
+✅ Переходите к расширению (Router integration)
+
+Если есть проблемы:
+- Проверьте логи: `Logs/baseline.log`
+- Запустите CLI для проверки backend
+- Проверьте конфигурацию: `cat $SNN_CONFIG_PATH`
+
+## Контакты
+
+См. основной README проекта.
