@@ -1,4 +1,5 @@
 import SwiftUI
+import SharedInfrastructure
 
 /// Detailed view for normalized values stage
 public struct NormalizedStageView: View {

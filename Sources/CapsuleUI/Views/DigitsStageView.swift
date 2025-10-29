@@ -1,4 +1,5 @@
 import SwiftUI
+import SharedInfrastructure
 
 /// Detailed view for base-B digits conversion
 public struct DigitsStageView: View {

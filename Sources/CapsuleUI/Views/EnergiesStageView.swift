@@ -1,4 +1,5 @@
 import SwiftUI
+import SharedInfrastructure
 
 /// Detailed view for energies mapping stage
 public struct EnergiesStageView: View {

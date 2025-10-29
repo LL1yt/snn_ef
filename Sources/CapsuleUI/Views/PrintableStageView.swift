@@ -1,4 +1,5 @@
 import SwiftUI
+import SharedInfrastructure
 
 /// Detailed view for printable string representation
 public struct PrintableStageView: View {
