@@ -51,7 +51,7 @@ public struct EnergeticUIPreview: View {
                         loadedSnapshot = PipelineSnapshotExporter.load(from: root)
                     }
                     Button("Export Snapshot") {
-                        if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+                        if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
                             loadedSnapshot = exported
                             lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.forward")
                         }
