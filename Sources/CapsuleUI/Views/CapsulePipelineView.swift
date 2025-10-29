@@ -230,11 +230,17 @@ public struct CapsulePipelineView: View {
             if let blockStage = snapshot.stage(ofType: .blockStructure),
                case let .header(_, payload, _) = blockStage.data {
                 // Reconstruct pre-PRP bytes
-                var beforeBytes = [UInt8](repeating: 0, count: snapshot.config.blockSize)
-                let headerBytes = CapsuleHeader(length: UInt16(payload.count), flags: 0, crc32: CRC32.compute(payload)).encode()
-                beforeBytes.replaceSubrange(0..<CapsuleHeader.byteCount, with: headerBytes)
-                beforeBytes.replaceSubrange(CapsuleHeader.byteCount..<(CapsuleHeader.byteCount + payload.count), with: payload)
+                let beforeBytes: [UInt8] = {
+                    var bytes = [UInt8](repeating: 0, count: snapshot.config.blockSize)
+                    let headerBytes = CapsuleHeader(length: UInt16(payload.count), flags: 0, crc32: CRC32.compute(payload)).encode()
+                    bytes.replaceSubrange(0..<CapsuleHeader.byteCount, with: headerBytes)
+                    bytes.replaceSubrange(CapsuleHeader.byteCount..<(CapsuleHeader.byteCount + payload.count), with: payload)
+                    return bytes
+                }()
                 PRPStageView(stage: stage, beforeBytes: beforeBytes)
+            } else {
+                Text("PRP stage data unavailable")
+                    .foregroundColor(.secondary)
             }
 
         case .capsuleBlock:
@@ -299,16 +305,18 @@ public struct CapsulePipelineView: View {
 
     private func startAutoPlay() {
         isPlaying = true
-        playTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-            guard let snapshot = viewModel.snapshot else {
-                stopAutoPlay()
-                return
-            }
+        playTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak viewModel] _ in
+            Task { @MainActor in
+                guard let viewModel, let snapshot = viewModel.snapshot else {
+                    stopAutoPlay()
+                    return
+                }
 
-            if currentStageIndex < snapshot.stages.count - 1 {
-                currentStageIndex += 1
-            } else {
-                stopAutoPlay()
+                if currentStageIndex < snapshot.stages.count - 1 {
+                    currentStageIndex += 1
+                } else {
+                    stopAutoPlay()
+                }
             }
         }
     }
