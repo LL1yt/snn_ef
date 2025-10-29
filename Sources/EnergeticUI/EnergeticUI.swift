@@ -4,7 +4,7 @@ import SharedInfrastructure
 
 public struct EnergeticUIPreview: View {
     private let snapshot: ConfigSnapshot?
-    @State private var loadedSnapshot: PipelineSnapshot?
+    @State private var loadedSnapshot: ConfigPipelineSnapshot?
     @State private var lastRouterEvent: Date?
 
     public init(snapshot: ConfigSnapshot? = try? ConfigCenter.load()) {
