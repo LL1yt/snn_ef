@@ -77,6 +77,7 @@ public enum CapsuleError: Error, LocalizedError, Equatable {
     case malformedHeader
     case crcMismatch(expected: UInt32, actual: UInt32)
     case invalidBlockSize(expected: Int, actual: Int)
+    case invalidBlockStructure(reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -88,6 +89,8 @@ public enum CapsuleError: Error, LocalizedError, Equatable {
             return "CRC mismatch: expected=\(String(format: "0x%08X", expected)) actual=\(String(format: "0x%08X", actual))"
         case let .invalidBlockSize(expected, actual):
             return "Invalid block size: expected=\(expected) actual=\(actual)"
+        case let .invalidBlockStructure(reason):
+            return "Invalid block structure: \(reason)"
         }
     }
 }

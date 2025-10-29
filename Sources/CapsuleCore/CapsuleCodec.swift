@@ -48,7 +48,16 @@ public struct CapsuleDecoder: Sendable {
 
         let header = try CapsuleHeader.decode(from: bytes.prefix(CapsuleHeader.byteCount))
         let len = Int(header.length)
-        let payloadSlice = bytes[CapsuleHeader.byteCount..<(CapsuleHeader.byteCount + len)]
+        
+        // Validate that the block has enough bytes for the declared payload length
+        let payloadEndIndex = CapsuleHeader.byteCount + len
+        guard payloadEndIndex <= bytes.count else {
+            throw CapsuleError.invalidBlockStructure(
+                reason: "Header declares length \(len) but block only has \(bytes.count - CapsuleHeader.byteCount) bytes available"
+            )
+        }
+        
+        let payloadSlice = bytes[CapsuleHeader.byteCount..<payloadEndIndex]
         let payload = Array(payloadSlice)
         let actualCRC = CRC32.compute(payload)
         guard actualCRC == header.crc32 else {
