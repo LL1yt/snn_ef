@@ -5,7 +5,7 @@ import SharedInfrastructure
 public struct CapsuleUIPreview: View {
     private let snapshot: ConfigSnapshot?
     @State private var exportStatus: String = ""
-    @State private var loadedSnapshot: PipelineSnapshot?
+    @State private var loadedSnapshot: ConfigPipelineSnapshot?
 
     public init(snapshot: ConfigSnapshot? = try? ConfigCenter.load()) {
         self.snapshot = snapshot
