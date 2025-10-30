@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "EnergeticCore", targets: ["EnergeticCore"]),
         .library(name: "CapsuleUI", targets: ["CapsuleUI"]),
         .library(name: "EnergeticUI", targets: ["EnergeticUI"]),
+        .executable(name: "CapsulePipelineDemo", targets: ["CapsulePipelineDemo"]),
         .executable(name: "capsule-cli", targets: ["CapsuleCLI"]),
         .executable(name: "energetic-cli", targets: ["EnergeticCLI"])
     ],
@@ -45,6 +46,11 @@ let package = Package(
             name: "EnergeticUI",
             dependencies: ["SharedInfrastructure", "EnergeticCore"],
             path: "Sources/EnergeticUI"
+        ),
+        .executableTarget(
+            name: "CapsulePipelineDemo",
+            dependencies: ["SharedInfrastructure", "CapsuleUI"],
+            path: "Sources/CapsulePipelineDemo"
         ),
         .executableTarget(
             name: "CapsuleCLI",

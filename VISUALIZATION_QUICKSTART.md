@@ -9,94 +9,36 @@
 - Метрики производительности
 - CRC verification
 
-## Запуск в Xcode (рекомендуется для тестирования)
+## Запуск визуализации (macOS 14+, Swift 5.10)
 
-### Шаг 1: Создайте новый macOS App target
+### Что уже настроено
+- В `Package.swift` добавлен продукт `.executable(name: "CapsulePipelineDemo")`.
+- Точка входа находится в `Sources/CapsulePipelineDemo/CapsulePipelineDemoApp.swift`.
+- Приложение читает конфиг через `ConfigCenter.load(url:)`, поддерживает `SNN_CONFIG_PATH` и по умолчанию ищет `Configs/baseline.yaml` относительно текущей директории запуска.
 
-В Xcode:
-1. File → New → Target
-2. Выберите "macOS → App"
-3. Назовите "CapsulePipelineDemo"
-
-### Шаг 2: Создайте главный файл
-
-В `CapsulePipelineDemo/CapsulePipelineDemoApp.swift`:
-
-```swift
-import SwiftUI
-import CapsuleUI
-import SharedInfrastructure
-
-@main
-struct CapsulePipelineDemoApp: App {
-    init() {
-        // Инициализация конфигурации
-        do {
-            let snapshot = try ConfigCenter.load()
-            try LoggingHub.configure(from: snapshot)
-            ProcessRegistry.configure(from: snapshot)
-
-            print("✅ Config loaded from: \(snapshot.sourceURL.path)")
-        } catch {
-            print("❌ Config error: \(error)")
-        }
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            if let snapshot = try? ConfigCenter.load() {
-                CapsulePipelineView(config: snapshot.root.capsule)
-                    .frame(minWidth: 900, minHeight: 600)
-            } else {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 48))
-                        .foregroundColor(.red)
-                    Text("Failed to load configuration")
-                        .font(.headline)
-                    Text("Check SNN_CONFIG_PATH environment variable")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .padding()
-            }
-        }
-        .windowStyle(.automatic)
-        .commands {
-            // Можно добавить custom menu commands
-        }
-    }
-}
-```
-
-### Шаг 3: Настройте Environment Variable
-
-1. Product → Scheme → Edit Scheme (или Cmd+<)
-2. Run → Arguments → Environment Variables
-3. Добавьте:
+### Быстрый запуск через swift run
+1. Перейдите в корень репозитория:  
+   ```bash
+   cd /path/to/snn_ef
    ```
-   Name:  SNN_CONFIG_PATH
-   Value: /полный/путь/к/snn_ef/Configs/baseline.yaml
+2. (Опционально) Укажите альтернативный конфиг:  
+   ```bash
+   export SNN_CONFIG_PATH=/absolute/path/to/Configs/baseline.yaml
    ```
-
-   Например:
+   Если переменная не задана, достаточно запускать из корня репозитория.
+3. Соберите и запустите визуализацию:  
+   ```bash
+   swift run CapsulePipelineDemo
    ```
-   /Users/username/Projects/snn_ef/Configs/baseline.yaml
-   ```
+4. Во время первого старта приложение сконфигурирует `LoggingHub` и `ProcessRegistry` и выведет окно SwiftUI с `CapsulePipelineView`.
 
-### Шаг 4: Добавьте зависимости
+### Запуск в Xcode
+1. Откройте `Package.swift` в Xcode (File → Open...).
+2. Дождитесь, пока SwiftPM создаст схемы, затем выберите схему `CapsulePipelineDemo`.
+3. При необходимости задайте `SNN_CONFIG_PATH` (Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables).
+4. Cmd+R — Xcode соберёт и запустит встроенный SwiftUI интерфейс.
 
-В target settings:
-1. General → Frameworks and Libraries
-2. Добавьте:
-   - `CapsuleUI`
-   - `CapsuleCore`
-   - `SharedInfrastructure`
-
-### Шаг 5: Запустите
-
-1. Выберите схему "CapsulePipelineDemo"
-2. Cmd+R (Run)
+> Headless режим остаётся доступным через CLI (`capsule-cli`, `energetic-cli`); визуализация предназначена для демонстрации пайплайна в реальном времени.
 
 ## Проверка работы
 
@@ -240,10 +182,7 @@ tail -f Logs/baseline.log | grep ui.pipeline
 
 **Ошибка:** Missing imports
 
-**Решение:** Убедитесь, что в target добавлены все зависимости:
-- CapsuleUI
-- CapsuleCore
-- SharedInfrastructure
+**Решение:** Запускайте встроенную схему `CapsulePipelineDemo`, в ней уже подключены `CapsuleUI` и `SharedInfrastructure`. Если создаёте собственный target, добавьте эти зависимости вручную.
 
 ### CRC всегда fails
 
