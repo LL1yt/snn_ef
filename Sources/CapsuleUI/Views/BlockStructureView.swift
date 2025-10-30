@@ -39,6 +39,28 @@ public struct BlockStructureView: View {
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                             CompactHexDumpView(bytes: payload, firstRows: 4, lastRows: 2)
+
+                            let samples = payloadSamples(bytes: payload, limit: 8)
+                            if !samples.isEmpty {
+                                Divider()
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Sample bytes:")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                    ForEach(samples) { sample in
+                                        HStack(spacing: 8) {
+                                            Text(String(format: "[%03d]", sample.index))
+                                                .font(.system(.caption2, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                            Text(sample.byteHex)
+                                                .font(.system(.caption, design: .monospaced))
+                                            Text(sample.asciiDescription)
+                                                .font(.system(.caption2, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 } label: {
@@ -64,6 +86,39 @@ public struct BlockStructureView: View {
                 LabeledContent("Total Block Size", value: "\(stage.metrics.outputSize) bytes")
                     .fontWeight(.medium)
             }
+        }
+    }
+}
+
+private func payloadSamples(bytes: [UInt8], limit: Int) -> [PayloadSample] {
+    guard limit > 0 else { return [] }
+    let count = min(limit, bytes.count)
+    return (0..<count).map { index in
+        PayloadSample(index: index, byte: bytes[index])
+    }
+}
+
+private struct PayloadSample: Identifiable {
+    let index: Int
+    let byte: UInt8
+
+    var id: Int { index }
+
+    var byteHex: String {
+        String(format: "0x%02X", byte)
+    }
+
+    var asciiDescription: String {
+        if byte >= 0x20 && byte <= 0x7E {
+            return "('\(Character(UnicodeScalar(byte))))"
+        } else if byte == 0x0A {
+            return "(LF)"
+        } else if byte == 0x0D {
+            return "(CR)"
+        } else if byte == 0x09 {
+            return "(TAB)"
+        } else {
+            return ""
         }
     }
 }

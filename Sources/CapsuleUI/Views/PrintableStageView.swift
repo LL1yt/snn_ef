@@ -5,10 +5,12 @@ import SharedInfrastructure
 public struct PrintableStageView: View {
     let stage: PipelineStage
     let config: ConfigRoot.Capsule
+    let digits: [Int]?
 
-    public init(stage: PipelineStage, config: ConfigRoot.Capsule) {
+    public init(stage: PipelineStage, config: ConfigRoot.Capsule, digits: [Int]?) {
         self.stage = stage
         self.config = config
+        self.digits = digits
     }
 
     public var body: some View {
@@ -58,6 +60,31 @@ public struct PrintableStageView: View {
                         .font(.caption)
                 }
 
+                if let digits, !digits.isEmpty {
+                    GroupBox("Sample Characters") {
+                        let pairs = printableSamples(string: printableString, digits: digits, limit: 8)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(pairs) { sample in
+                                HStack(spacing: 8) {
+                                    Text(String(format: "[%03d]", sample.index))
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                    Text("digit \(sample.digit)")
+                                        .font(.system(.caption, design: .monospaced))
+                                    Text("→ '\(sample.character)'")
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            if printableString.count > pairs.count {
+                                Text("…")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 Text("Each character maps to a digit in base-\(config.base)")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -65,4 +92,25 @@ public struct PrintableStageView: View {
             }
         }
     }
+}
+
+private func printableSamples(string: String, digits: [Int], limit: Int) -> [PrintableSample] {
+    guard limit > 0 else { return [] }
+    var result: [PrintableSample] = []
+    result.reserveCapacity(limit)
+
+    let characters = Array(string)
+    let count = min(limit, min(characters.count, digits.count))
+    for index in 0..<count {
+        result.append(PrintableSample(index: index, digit: digits[index], character: characters[index]))
+    }
+    return result
+}
+
+private struct PrintableSample: Identifiable {
+    let index: Int
+    let digit: Int
+    let character: Character
+
+    var id: Int { index }
 }

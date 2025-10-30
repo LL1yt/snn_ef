@@ -153,7 +153,7 @@ tail -f Logs/baseline.log | grep ui.pipeline
 ### Energies Distribution
 - Min/Max/Mean/Sum
 - Top-5 самых частых значений
-- Range: [1..100] для base=100
+- Range: [1..256] для base=256
 
 ### CRC Verification
 - ✅ **PASS** (зелёный): текст восстановлен точно
@@ -191,8 +191,8 @@ tail -f Logs/baseline.log | grep ui.pipeline
 **Решение:** Проверьте в `Configs/baseline.yaml`:
 ```yaml
 capsule:
-  base: 100
-  alphabet: "1234567890abcdef..." # Должно быть ровно 100 символов
+  base: 256
+  alphabet: "ĀāĂă..." # Должно быть ровно 256 уникальных символов
 ```
 
 ### Медленная работа

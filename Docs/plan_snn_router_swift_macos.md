@@ -329,7 +329,7 @@ router:
     max_dx: 10
     min_dx: 1
     max_dy: 64
-    energy_base: 100   # держать синхронизированным с capsule.base
+    energy_base: 256   # держать синхронизированным с capsule.base
   optimizer:
     type: adam
     lr: 1.0e-3

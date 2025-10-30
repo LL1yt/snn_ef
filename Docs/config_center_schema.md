@@ -94,8 +94,8 @@ capsule:
   enabled: true
   max_input_bytes: 256
   block_size: 320
-  base: 100
-  alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
+  base: 256
+  alphabet: "ĀāĂăĄąĆćĈĉĊċČčĎďĐđĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦħĨĩĪīĬĭĮįİıĲĳĴĵĶķĸĹĺĻļĽľĿŀŁłŃńŅņŇňŉŊŋŌōŎŏŐőŒœŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŧŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžſƀƁƂƃƄƅƆƇƈƉƊƋƌƍƎƏƐƑƒƓƔƕƖƗƘƙƚƛƜƝƞƟƠơƢƣƤƥƦƧƨƩƪƫƬƭƮƯưƱƲƳƴƵƶƷƸƹƺƻƼƽƾƿǀǁǂǃǄǅǆǇǈǉǊǋǌǍǎǏǐǑǒǓǔǕǖǗǘǙǚǛǜǝǞǟǠǡǢǣǤǥǦǧǨǩǪǫǬǭǮǯǰǱǲǳǴǵǶǷǸǹǺǻǼǽǾǿ"
   prp: "feistel" # feistel|aes|gpu_feistel
   feistel_rounds: 10
   key_hex: "000102030405060708090a0b0c0d0e0f"
@@ -108,7 +108,7 @@ capsule:
 Constraints:
 
 - `block_size` ≥ `max_input_bytes + header_size` (ConfigCenter проверяет, header = 7 байт в MVP).
-- Алфавит строго длины `base` (в примере — 100 символов без повтора).
+- Алфавит строго длины `base` (в примере — 256 символов из диапазона Latin Extended без повтора).
 - `enabled` можно выключить для чистых тестов роутера.
 
 ---
@@ -132,7 +132,7 @@ router:
     max_dx: 10
     min_dx: 1
     max_dy: 64
-    energy_base: 100 # должно совпадать с capsule.base
+    energy_base: 256 # должно совпадать с capsule.base
   optimizer:
     type: "adam"
     lr: 1.0e-3
@@ -225,8 +225,8 @@ capsule:
   enabled: true
   max_input_bytes: 256
   block_size: 320
-  base: 100
-  alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
+  base: 256
+  alphabet: "ĀāĂăĄąĆćĈĉĊċČčĎďĐđĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦħĨĩĪīĬĭĮįİıĲĳĴĵĶķĸĹĺĻļĽľĿŀŁłŃńŅņŇňŉŊŋŌōŎŏŐőŒœŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŧŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžſƀƁƂƃƄƅƆƇƈƉƊƋƌƍƎƏƐƑƒƓƔƕƖƗƘƙƚƛƜƝƞƟƠơƢƣƤƥƦƧƨƩƪƫƬƭƮƯưƱƲƳƴƵƶƷƸƹƺƻƼƽƾƿǀǁǂǃǄǅǆǇǈǉǊǋǌǍǎǏǐǑǒǓǔǕǖǗǘǙǚǛǜǝǞǟǠǡǢǣǤǥǦǧǨǩǪǫǬǭǮǯǰǱǲǳǴǵǶǷǸǹǺǻǼǽǾǿ"
   prp: "feistel"
   feistel_rounds: 10
   key_hex: "000102030405060708090a0b0c0d0e0f"
@@ -251,7 +251,7 @@ router:
     max_dx: 10
     min_dx: 1
     max_dy: 64
-    energy_base: 100
+    energy_base: 256
   optimizer:
     type: "adam"
     lr: 1.0e-3

@@ -276,7 +276,14 @@ public struct CapsulePipelineView: View {
             DigitsStageView(stage: stage, config: snapshot.config)
 
         case .printableString:
-            PrintableStageView(stage: stage, config: snapshot.config)
+            let digits: [Int]? = {
+                if let digitsStage = snapshot.stage(ofType: .baseConversion),
+                   case let .digits(values) = digitsStage.data {
+                    return values
+                }
+                return nil
+            }()
+            PrintableStageView(stage: stage, config: snapshot.config, digits: digits)
 
         case .energiesMapping:
             EnergiesStageView(stage: stage, config: snapshot.config)

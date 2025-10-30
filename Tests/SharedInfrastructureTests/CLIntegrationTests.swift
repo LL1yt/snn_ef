@@ -110,7 +110,7 @@ final class CLIntegrationTests: XCTestCase {
           enabled: true
           max_input_bytes: 16
           block_size: 48
-          base: 100
+          base: 256
           alphabet: "\(alphabet)"
           prp: "feistel"
           feistel_rounds: 10
@@ -135,7 +135,7 @@ final class CLIntegrationTests: XCTestCase {
             max_dx: 10
             min_dx: 1
             max_dy: 32
-            energy_base: 100
+            energy_base: 256
           optimizer:
             type: "adam"
             lr: 1.0e-3
