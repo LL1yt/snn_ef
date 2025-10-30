@@ -14,8 +14,6 @@ struct CapsulePipelineDemoApp: App {
             let configURL = env["SNN_CONFIG_PATH"].map { URL(fileURLWithPath: $0) }
 
             let loadedSnapshot = try ConfigCenter.load(url: configURL)
-            snapshot = loadedSnapshot
-            loadError = nil
 
             try LoggingHub.configure(from: loadedSnapshot)
             ProcessRegistry.configure(from: loadedSnapshot)
@@ -25,6 +23,9 @@ struct CapsulePipelineDemoApp: App {
                 level: .info,
                 message: "CapsulePipeline demo launched with config: \(loadedSnapshot.sourceURL.path)"
             )
+
+            snapshot = loadedSnapshot
+            loadError = nil
         } catch {
             snapshot = nil
             loadError = error
