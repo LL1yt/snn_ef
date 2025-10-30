@@ -32,7 +32,7 @@ final class GraphTests: XCTestCase {
 
         let rowPtr = [0, 2, 3, 4, 4, 4]  // 5 nodes + 1
         let colIdx = [3, 4, 3, 4]        // 4 edges
-        let weights = [1.0, 1.0, 1.0, 1.0]
+        let weights: [Float] = [1.0, 1.0, 1.0, 1.0]
 
         // Positions (approximate for 5 nodes)
         let positions: [SIMD2<Float>] = [
