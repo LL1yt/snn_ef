@@ -118,7 +118,7 @@ final class SharedInfrastructureTests: XCTestCase {
         max_dx: 10
         min_dx: 1
         max_dy: 64
-      energy_base: 256
+        energy_base: 256
       optimizer:
         type: "adam"
         lr: 1.0e-3
@@ -152,7 +152,7 @@ final class SharedInfrastructureTests: XCTestCase {
     private static let invalidEnergyConfig: String = {
         var lines = validConfig.components(separatedBy: "\n")
         if let index = lines.firstIndex(where: { $0.contains("energy_base") }) {
-            lines[index] = "    energy_base: 101"
+            lines[index] = "        energy_base: 257"
         }
         return lines.joined(separator: "\n")
     }()

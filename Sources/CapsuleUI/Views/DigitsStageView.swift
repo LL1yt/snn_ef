@@ -54,7 +54,7 @@ public struct DigitsStageView: View {
                                         .foregroundColor(.secondary)
                                     Text("digit \(sample.digit)")
                                         .font(.system(.caption, design: .monospaced))
-                                    Text("→ '\(sample.character)'")
+                                    Text("→ '\(String(sample.character))'")
                                         .font(.system(.caption, design: .monospaced))
                                         .foregroundColor(.secondary)
                                 }
@@ -63,15 +63,16 @@ public struct DigitsStageView: View {
                     }
                 }
 
-                let inputBytes = stage.metrics.inputSize
-                let conversionNote: String
-                if digits.count == inputBytes {
-                    conversionNote = "Converted from \(inputBytes) bytes; base-\(config.base) preserves one digit per byte."
-                } else if digits.count > inputBytes {
-                    conversionNote = "Converted from \(inputBytes) bytes to \(digits.count) base-\(config.base) digits; additional digits appear because each symbol carries less than one byte of entropy."
-                } else {
-                    conversionNote = "Converted from \(inputBytes) bytes to \(digits.count) base-\(config.base) digits; higher base compresses multiple bytes into single digits."
-                }
+                let conversionNote: String = {
+                    let inputBytes = stage.metrics.inputSize
+                    if digits.count == inputBytes {
+                        return "Converted from \(inputBytes) bytes; base-\(config.base) preserves one digit per byte."
+                    } else if digits.count > inputBytes {
+                        return "Converted from \(inputBytes) bytes to \(digits.count) base-\(config.base) digits; additional digits appear because each symbol carries less than one byte of entropy."
+                    } else {
+                        return "Converted from \(inputBytes) bytes to \(digits.count) base-\(config.base) digits; higher base compresses multiple bytes into single digits."
+                    }
+                }()
 
                 Text(conversionNote)
                     .font(.caption)
