@@ -2,6 +2,24 @@ import Foundation
 import CapsuleCore
 import SharedInfrastructure
 
+public enum PipelineExecutionError: LocalizedError {
+    case inputTooLarge(actualBytes: Int, allowedBytes: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .inputTooLarge(actual, allowed):
+            return "Input is \(actual) bytes in UTF-8, but the capsule supports at most \(allowed) bytes."
+        }
+    }
+
+    public var recoverySuggestion: String? {
+        switch self {
+        case .inputTooLarge:
+            return "Reduce the input length or increase capsule.max_input_bytes and block_size in the configuration."
+        }
+    }
+}
+
 /// Orchestrates pipeline execution and captures detailed stage data for visualization
 public actor PipelineExecutor {
     private let config: ConfigRoot.Capsule
@@ -180,6 +198,15 @@ public actor PipelineExecutor {
         let startTime = Date()
         let data = Data(input.utf8)
         let payloadBytes = [UInt8](data)
+        let maxPayloadBytes = max(0, min(config.maxInputBytes, config.blockSize - CapsuleHeader.byteCount))
+
+        guard payloadBytes.count <= maxPayloadBytes else {
+            throw PipelineExecutionError.inputTooLarge(
+                actualBytes: payloadBytes.count,
+                allowedBytes: maxPayloadBytes
+            )
+        }
+
         let crc = CRC32.compute(payloadBytes)
         let header = CapsuleHeader(length: UInt16(data.count), flags: 0, crc32: crc)
 

@@ -95,7 +95,26 @@ public struct CapsulePipelineView: View {
                         } label: {
                             Image(systemName: "xmark.circle")
                         }
-                        .help(error.localizedDescription)
+                        .help("Dismiss error")
+                    }
+                }
+
+                if let error = viewModel.error {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(error.localizedDescription)
+                                .font(.footnote)
+                                .foregroundColor(.red)
+                            if let suggestion = (error as? LocalizedError)?.recoverySuggestion {
+                                Text(suggestion)
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer()
                     }
                 }
             }
@@ -228,13 +247,20 @@ public struct CapsulePipelineView: View {
 
         case .prpTransform:
             if let blockStage = snapshot.stage(ofType: .blockStructure),
-               case let .header(_, payload, _) = blockStage.data {
-                // Reconstruct pre-PRP bytes
+               case let .header(header, payload, _) = blockStage.data {
+                // Reconstruct pre-PRP bytes using original header metadata
                 let beforeBytes: [UInt8] = {
                     var bytes = [UInt8](repeating: 0, count: snapshot.config.blockSize)
-                    let headerBytes = CapsuleHeader(length: UInt16(payload.count), flags: 0, crc32: CRC32.compute(payload)).encode()
-                    bytes.replaceSubrange(0..<CapsuleHeader.byteCount, with: headerBytes)
-                    bytes.replaceSubrange(CapsuleHeader.byteCount..<(CapsuleHeader.byteCount + payload.count), with: payload)
+                    let headerBytes = header.encode()
+                    if headerBytes.count == CapsuleHeader.byteCount {
+                        bytes.replaceSubrange(0..<CapsuleHeader.byteCount, with: headerBytes)
+                    }
+
+                    let payloadEnd = CapsuleHeader.byteCount + payload.count
+                    if payloadEnd <= bytes.count {
+                        bytes.replaceSubrange(CapsuleHeader.byteCount..<payloadEnd, with: payload)
+                    }
+
                     return bytes
                 }()
                 PRPStageView(stage: stage, beforeBytes: beforeBytes)
