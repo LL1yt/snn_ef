@@ -14,8 +14,8 @@ final class SharedInfrastructureTests: XCTestCase {
 
     func testProcessRegistryConfigureMergesAliases() throws {
         let config = Self.validConfig.replacingOccurrences(
-            of: "  router.forward: \"router.forward\"",
-            with: "  router.forward: \"router.forward\"\n  custom.alias: \"custom.canonical\""
+            of: "  router.step: \"router.step\"",
+            with: "  router.step: \"router.step\"\n  custom.alias: \"custom.canonical\""
         )
         let url = try makeTemporaryConfig(contents: config)
         let snapshot = try ConfigCenter.load(url: url)
@@ -80,10 +80,13 @@ final class SharedInfrastructureTests: XCTestCase {
         - type: "stdout"
       levels_override:
         capsule.encode: "debug"
+        router.spike: "trace"
       timestamp_kind: "relative"
     process_registry:
       capsule.encode: "capsule.encode"
-      router.forward: "router.forward"
+      router.step: "router.step"
+      router.spike: "router.spike"
+      router.output: "router.output"
     paths:
       logs_dir: "Logs"
       checkpoints_dir: "Artifacts/Checkpoints"
@@ -105,40 +108,30 @@ final class SharedInfrastructureTests: XCTestCase {
     router:
       layers: 10
       nodes_per_layer: 1024
-      prototypes:
-        count: 64
-        hidden_dim: 8
-      neighbors:
-        local: 8
-        jump: 2
+      snn:
+        parameter_count: 512
+        decay: 0.92
+        threshold: 0.8
+        reset_value: 0.0
+        delta_x_range: [1, 4]
+        delta_y_range: [-128, 128]
+        surrogate: "fast_sigmoid"
+        dt: 1
       alpha: 0.9
-      tau: 3.0
-      top_k: 4
+      energy_floor: 1.0e-5
       energy_constraints:
-        max_dx: 10
-        min_dx: 1
-        max_dy: 64
         energy_base: 100
-      optimizer:
-        type: "adam"
-        lr: 1.0e-3
-        beta1: 0.9
-        beta2: 0.999
-        eps: 1.0e-8
-      entropy_reg: 0.01
-      batch_size: 32
-      epochs: 5
-      backend: "cpu"
-      task: "addition"
-      headless: false
-      checkpoints:
-        every_steps: 100
-        keep: 5
-      local_learning:
-        enabled: false
-        rho: 0.9
-        lr: 1.0e-4
-        baseline_beta: 0.95
+      training:
+        optimizer:
+          type: "adam"
+          lr: 1.0e-3
+          beta1: 0.9
+          beta2: 0.999
+          eps: 1.0e-8
+        losses:
+          energy_balance_weight: 1.0
+          jump_penalty_weight: 1.0e-2
+          spike_rate_target: 0.1
     ui:
       enabled: true
       refresh_hz: 30

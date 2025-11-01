@@ -10,7 +10,10 @@ public struct PipelineSnapshot: Codable {
     public struct RouterSummary: Codable {
         public let layers: Int
         public let nodesPerLayer: Int
-        public let backend: String
+        public let parameterCount: Int
+        public let surrogate: String
+        public let alpha: Double
+        public let energyFloor: Double
     }
 
     public let generatedAt: Date
@@ -67,10 +70,13 @@ public enum PipelineSnapshotExporter {
         let router = PipelineSnapshot.RouterSummary(
             layers: root.router.layers,
             nodesPerLayer: root.router.nodesPerLayer,
-            backend: root.router.backend
+            parameterCount: root.router.snn.parameterCount,
+            surrogate: root.router.snn.surrogate,
+            alpha: root.router.alpha,
+            energyFloor: root.router.energyFloor
         )
 
-        let processes = ["capsule.encode", "router.forward", "ui.pipeline", "cli.main"]
+        let processes = ["capsule.encode", "router.step", "router.spike", "ui.pipeline", "cli.main"]
         var lastEvents: [String: Date] = [:]
         for alias in processes {
             if let timestamp = LoggingHub.lastEventTimestamp(for: alias) {

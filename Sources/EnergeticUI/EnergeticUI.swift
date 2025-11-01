@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import EnergeticCore
 import SharedInfrastructure
 
@@ -14,7 +15,7 @@ public struct EnergeticUIPreview: View {
         } else {
             _loadedSnapshot = State(initialValue: nil)
         }
-        _lastRouterEvent = State(initialValue: LoggingHub.lastEventTimestamp(for: "router.forward"))
+        _lastRouterEvent = State(initialValue: LoggingHub.lastEventTimestamp(for: "router.step"))
     }
 
     public var body: some View {
@@ -25,8 +26,12 @@ public struct EnergeticUIPreview: View {
                     .font(.title2)
                 LabeledContent("Layers") { Text("\(router.layers)") }
                 LabeledContent("Nodes / layer") { Text("\(router.nodesPerLayer)") }
-                LabeledContent("Top-K") { Text("\(router.topK)") }
-                LabeledContent("Backend") { Text(router.backend) }
+                LabeledContent("SNN Params") { Text("\(router.snn.parameterCount)") }
+                LabeledContent("Surrogate") { Text(router.snn.surrogate) }
+                LabeledContent("Δx range") { Text("[\(router.snn.deltaXRange.min), \(router.snn.deltaXRange.max)]") }
+                LabeledContent("Δy range") { Text("[\(router.snn.deltaYRange.min), \(router.snn.deltaYRange.max)]") }
+                LabeledContent("Alpha") { Text(String(format: "%.3f", router.alpha)) }
+                LabeledContent("Energy floor") { Text(String(format: "%.2e", router.energyFloor)) }
 
                 if let lastRouterEvent {
                     Text("Last router event: \(format(date: lastRouterEvent))")
@@ -46,14 +51,14 @@ public struct EnergeticUIPreview: View {
 
                 HStack {
                     Button("Refresh Metrics") {
-                        lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.forward")
+                        lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.step")
                         let root = snapshot.root
                         loadedSnapshot = PipelineSnapshotExporter.load(from: root)
                     }
                     Button("Export Snapshot") {
                         if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
                             loadedSnapshot = exported
-                            lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.forward")
+                            lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.step")
                         }
                     }
                 }

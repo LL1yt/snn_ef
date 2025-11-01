@@ -5,7 +5,8 @@ public enum CLIRenderer {
         let uiEnabled = config.ui.enabled ? "enabled" : "disabled"
         let headlessNote = config.ui.headlessOverride ? "forced headless" : "toggleable"
         let pipelineSnippet = config.capsule.pipelineExampleText.isEmpty ? "n/a" : config.capsule.pipelineExampleText
-        let backend = config.router.backend
+        let parameterCount = config.router.snn.parameterCount
+        let surrogate = config.router.snn.surrogate
         let logsDir = config.paths.logsDir
 
         let snapshotURL = (try? PipelineSnapshotExporter.resolvedURL(for: config.paths.pipelineSnapshot, fileManager: .default))
@@ -18,7 +19,7 @@ public enum CLIRenderer {
         }
 
         var lastEventsLine = "Last events: n/a"
-        let aliases = ["capsule.encode", "router.forward", "ui.pipeline", "cli.main"]
+        let aliases = ["capsule.encode", "router.step", "router.spike", "ui.pipeline", "cli.main"]
         var parts: [String] = []
         for alias in aliases {
             if let date = LoggingHub.lastEventTimestamp(for: alias) {
@@ -32,7 +33,7 @@ public enum CLIRenderer {
         return """
         Profile: \(config.profile)
         UI: \(uiEnabled) (headless override: \(headlessNote))
-        Router backend: \(backend)
+        SNN params: \(parameterCount) (surrogate: \(surrogate))
         Logs directory: \(logsDir)
         Capsule example snippet: \(pipelineSnippet)
         \(snapshotInfo)

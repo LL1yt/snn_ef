@@ -32,7 +32,7 @@ High-level architecture and flow
 
   - ConfigCenter: single source of truth for config. Reads YAML, validates all keys, enforces invariants, and provides an immutable snapshot per step. CLI/UI use the same snapshot; changes require restart.
   - LoggingHub: centralized logging with levels (trace|debug|info|warn|error) and required process_id for every event. Supports os_signpost for profiling.
-  - ProcessRegistry: canonical process_id dictionary for all pipeline stages (e.g., capsule.encode, router.forward, router.local_hebb, ui.pipeline, cli.main). Logging overrides reference only registered ids.
+- ProcessRegistry: canonical process_id dictionary for all pipeline stages (e.g., capsule.encode, router.step, router.spike, ui.pipeline, cli.main). Logging overrides reference only registered ids.
 
 - ReversibleCapsule
 

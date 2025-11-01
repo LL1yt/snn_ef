@@ -65,7 +65,7 @@ _С определённой долей вероятности ≈ 80 %_: ша
 
 ### 2.4 Logging/metrics
 
-- [ ] LoggingHub события: `router.forward`, `router.backward`, `router.checkpoint`.
+- [ ] LoggingHub события: `router.step`, `router.spike`, `router.output`.
 - [ ] Метрики → `Metrics.swift` (CSV/JSON) для обучения/валидации.
 - [ ] PipelineSnapshot: добавить энергетические показатели (сумма, максимум).
 

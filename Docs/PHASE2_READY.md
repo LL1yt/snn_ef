@@ -43,7 +43,7 @@
 - **Численная проверка**: finite differences для валидации
 
 #### 2.4 Logging & Metrics (2-3 часа)
-- **RouterLogger**: события router.forward, router.backward
+- **RouterLogger**: события router.step, router.spike, router.output
 - **MetricsCollector**: actor для thread-safe сбора
 - **PipelineSnapshot**: расширение полями роутера
 - **MetricsExporter**: экспорт в CSV/JSON
@@ -179,7 +179,7 @@ EnergeticCoreTests/
 - [ ] Softmax нормализация: `|sum(π) - 1.0| < 1e-6`
 
 ### Логирование:
-- [ ] События `router.forward`, `router.backward`, `router.checkpoint`
+- [ ] События `router.step`, `router.spike`, `router.output`
 - [ ] MetricsCollector собирает метрики
 - [ ] Экспорт в CSV/JSON работает
 - [ ] PipelineSnapshot обновлён
@@ -262,22 +262,34 @@ assert |numerical_grad - analytical_grad| < 1e-4
 router:
   layers: 10
   nodes_per_layer: 1024
-  neighbors:
-    local: 8     # соседи в слое j+1
-    jump: 2      # соседи в слое j+2
-  alpha: 0.9     # коэффициент распределения
-  tau: 3.0       # температура softmax
-  top_k: 4       # активных рёбер
-  optimizer:
-    type: adam
-    lr: 1.0e-3
+  snn:
+    parameter_count: 512
+    decay: 0.92
+    threshold: 0.8
+    reset_value: 0.0
+    delta_x_range: [1, 4]
+    delta_y_range: [-128, 128]
+    surrogate: "fast_sigmoid"
+    dt: 1
+  alpha: 0.9
+  energy_floor: 1.0e-5
+  energy_constraints:
+    energy_base: 100
+  training:
+    optimizer:
+      type: adam
+      lr: 1.0e-3
+    losses:
+      energy_balance_weight: 1.0
+      jump_penalty_weight: 1.0e-2
+      spike_rate_target: 0.1
 ```
 
 ### Process IDs для логирования:
 ```
-router.forward      → forward-pass метрики
-router.backward     → loss, grad_norm
-router.checkpoint   → сохранение весов
+router.step         → агрегированные метрики шага
+router.spike        → детали спайкового события
+router.output       → запись в итоговый буфер
 ```
 
 ### Зависимости:

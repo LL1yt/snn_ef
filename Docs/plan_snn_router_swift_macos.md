@@ -56,6 +56,7 @@ router:
   layers: 10
   nodes_per_layer: 1024
   snn:
+    parameter_count: 512
     decay: 0.92
     threshold: 0.8
     reset_value: 0.0

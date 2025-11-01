@@ -43,6 +43,7 @@
 - Хранит параметры и веса (общие для всех узлов/слоёв):
   - `W_in: [Float]` (4×H), `b_in`, `W_energy`, `b_energy`, `W_delta`, `b_delta`.
   - `threshold`, `decay`, `resetValue`.
+- Общее число параметров контролируется `snn.parameter_count` (базовый профиль — 512); ConfigCenter гарантирует минимум и позволяет экспериментировать.
 - `forward(batchInputs: [SIMD4<Float>], membrane: inout [Float]) -> SpikingOutputBatch`.
 - Выход:
   - `energyNext: [Float]`,

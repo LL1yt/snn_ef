@@ -100,7 +100,7 @@ ReversibleCapsule/
 
 ## Совместный инфраструктурный слой (с «энергетическим роутером»)
 - **ConfigCenter**: единая точка входа для конфигурации (размеры капсюля, base-B, маршрутизатор, визуализация). Снапшот immutable на шаг, переключение профилей через CLI и YAML.
-- **LoggingHub**: централизованное логирование с уровнями (`trace/debug/info/warn/error`) и обязательным `process_id` (`capsule.encode`, `capsule.baseB`, `router.forward`, `ui.pipeline` и т.д.).
+- **LoggingHub**: централизованное логирование с уровнями (`trace/debug/info/warn/error`) и обязательным `process_id` (`capsule.encode`, `capsule.baseB`, `router.step`, `router.spike`, `ui.pipeline` и т.д.).
 - **ProcessRegistry**: словарь стадий пайплайна, используемый логами, метриками и UI для прямого сопоставления событий.
 - **Сборки**: headless-билд тянет только `CapsuleCore + SharedInfrastructure`, UI-билд добавляет `CapsuleUI`; SwiftPM таргеты разделены, чтобы визуал можно было подключать позже.
 - **Fail-fast**: любые несогласованные параметры, ошибка CRC, превышение `L_max`, NaN/Inf → немедленный `throw` без скрытых фолбеков; CLI и UI обязаны показать ошибку пользователю.
