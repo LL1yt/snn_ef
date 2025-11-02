@@ -66,6 +66,8 @@ router:
     dt: 1
   alpha: 0.9
   energy_floor: 1.0e-5
+  energy_constraints:
+    energy_base: 256
   training:
     optimizer:
       type: "adam"

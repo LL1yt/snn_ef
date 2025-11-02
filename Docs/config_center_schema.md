@@ -130,7 +130,7 @@ router:
   alpha: 0.9                     # коэффициент затухания энергии, 0 < α ≤ 1
   energy_floor: 1.0e-5           # порог отсечения маленьких потоков, ≥ 0
   energy_constraints:
-    energy_base: 100             # должно совпадать с capsule.base
+    energy_base: 256             # должно совпадать с capsule.base
   training:
     optimizer:
       type: "adam"
@@ -243,7 +243,7 @@ router:
   alpha: 0.9
   energy_floor: 1.0e-5
   energy_constraints:
-    energy_base: 100
+    energy_base: 256
   training:
     optimizer:
       type: "adam"
