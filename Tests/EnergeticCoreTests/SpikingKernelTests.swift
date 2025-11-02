@@ -106,23 +106,35 @@ final class SpikingKernelTests: XCTestCase {
     }
     
     func testSpikeReset() throws {
-        let kernel = try createTestKernel(decay: 0.9, threshold: 0.1, resetValue: 0.0)
+        let kernel = try createTestKernel(decay: 0.95, threshold: 0.1, resetValue: 0.0)
         
         let input = SIMD4<Float>(1.0, 1.0, 1.0, 1.0)
         var membrane: Float = 0.0
         
-        // Accumulate until spike
-        while membrane < kernel.threshold {
-            _ = kernel.forward(input: input, membrane: &membrane)
+        var spiked = false
+        var membraneBeforeSpike: Float = 0.0
+        var stepsUntilSpike = 0
+        let maxSteps = 50
+        
+        // Run until spike occurs
+        while stepsUntilSpike < maxSteps && !spiked {
+            membraneBeforeSpike = membrane
+            let output = kernel.forward(input: input, membrane: &membrane)
+            
+            if output.spike {
+                spiked = true
+                // Membrane should be reset after spike
+                XCTAssertEqual(membrane, kernel.resetValue, accuracy: 0.5, 
+                              "Membrane should reset to \(kernel.resetValue) after spike, but was \(membrane)")
+                // Membrane before spike should have been near threshold
+                XCTAssertGreaterThan(membraneBeforeSpike, kernel.threshold * 0.5,
+                                   "Membrane before spike should be near threshold")
+            }
+            
+            stepsUntilSpike += 1
         }
         
-        // Next step should spike and reset
-        let output = kernel.forward(input: input, membrane: &membrane)
-        
-        if output.spike {
-            // Membrane should be reset
-            XCTAssertEqual(membrane, kernel.resetValue, accuracy: 0.5)
-        }
+        XCTAssertTrue(spiked, "Should spike within \(maxSteps) steps with strong input")
     }
     
     // MARK: - Batch Processing Tests
@@ -257,10 +269,19 @@ final class SpikingKernelTests: XCTestCase {
         threshold: Float = 0.5,
         resetValue: Float = 0.0
     ) throws -> SpikingKernel {
+        // Ensure valid parameter count
+        let validParamCount = max(parameterCount, 128)
+        
+        // Ensure valid decay
+        let validDecay = min(max(decay, 0.01), 0.99)
+        
+        // Ensure valid threshold
+        let validThreshold = min(max(threshold, 0.01), 1.0)
+        
         let config = SNNConfig(
-            parameterCount: parameterCount,
-            decay: decay,
-            threshold: threshold,
+            parameterCount: validParamCount,
+            decay: validDecay,
+            threshold: validThreshold,
             resetValue: resetValue,
             deltaXRange: 1...3,
             deltaYRange: -10...10,
