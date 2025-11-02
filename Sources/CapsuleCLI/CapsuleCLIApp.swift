@@ -28,41 +28,40 @@ struct CapsuleCLI {
         let args = Array(CommandLine.arguments.dropFirst())
         if args.isEmpty {
             printUsage(snapshot: snapshot)
-            return
-        }
+        } else {
+            switch args[0] {
+            case "encode":
+                let input = args.dropFirst().joined(separator: " ")
+                do {
+                    let data = Data(input.utf8)
+                    let encoder = CapsuleEncoder(config: cfg)
+                    let block = try encoder.encode(data)
+                    let digits = ByteDigitsConverter.toDigits(bytes: block.bytes, baseB: cfg.base)
+                    let printable = DigitStringConverter.digitsToString(digits, alphabet: cfg.alphabet)
+                    LoggingHub.emit(process: "capsule.encode", level: .info, message: "encoded bytes=\(data.count) digits=\(digits.count)")
+                    print(printable)
+                } catch {
+                    Diagnostics.fail("encode failed: \(error.localizedDescription)", processID: processID)
+                }
 
-        switch args[0] {
-        case "encode":
-            let input = args.dropFirst().joined(separator: " ")
-            do {
-                let data = Data(input.utf8)
-                let encoder = CapsuleEncoder(config: cfg)
-                let block = try encoder.encode(data)
-                let digits = ByteDigitsConverter.toDigits(bytes: block.bytes, baseB: cfg.base)
-                let printable = DigitStringConverter.digitsToString(digits, alphabet: cfg.alphabet)
-                LoggingHub.emit(process: "capsule.encode", level: .info, message: "encoded bytes=\(data.count) digits=\(digits.count)")
-                print(printable)
-            } catch {
-                Diagnostics.fail("encode failed: \(error.localizedDescription)", processID: processID)
+            case "decode":
+                let printable = args.dropFirst().joined(separator: " ")
+                do {
+                    let digits = DigitStringConverter.stringToDigits(printable, alphabet: cfg.alphabet)
+                    let bytes = ByteDigitsConverter.toBytes(digitsMSDFirst: digits, baseB: cfg.base, byteCount: cfg.blockSize)
+                    let block = try CapsuleBlock(blockSize: cfg.blockSize, bytes: bytes)
+                    let decoder = CapsuleDecoder(config: cfg)
+                    let data = try decoder.decode(block)
+                    let text = String(decoding: data, as: UTF8.self)
+                    LoggingHub.emit(process: "capsule.decode", level: .info, message: "decoded bytes=\(data.count)")
+                    print(text)
+                } catch {
+                    Diagnostics.fail("decode failed: \(error.localizedDescription)", processID: processID)
+                }
+
+            default:
+                printUsage(snapshot: snapshot)
             }
-
-        case "decode":
-            let printable = args.dropFirst().joined(separator: " ")
-            do {
-                let digits = DigitStringConverter.stringToDigits(printable, alphabet: cfg.alphabet)
-                let bytes = ByteDigitsConverter.toBytes(digitsMSDFirst: digits, baseB: cfg.base, byteCount: cfg.blockSize)
-                let block = try CapsuleBlock(blockSize: cfg.blockSize, bytes: bytes)
-                let decoder = CapsuleDecoder(config: cfg)
-                let data = try decoder.decode(block)
-                let text = String(decoding: data, as: UTF8.self)
-                LoggingHub.emit(process: "capsule.decode", level: .info, message: "decoded bytes=\(data.count)")
-                print(text)
-            } catch {
-                Diagnostics.fail("decode failed: \(error.localizedDescription)", processID: processID)
-            }
-
-        default:
-            printUsage(snapshot: snapshot)
         }
 
         if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {

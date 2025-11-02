@@ -32,6 +32,9 @@ struct EnergeticCLI {
             LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")
         }
 
+        let backendSummary = "Router backend: \(router.describe())"
+        print(backendSummary)
+
         let hint = CLIRenderer.hint(for: snapshot.root)
         print(hint)
     }
