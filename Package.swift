@@ -14,7 +14,8 @@ let package = Package(
         .library(name: "EnergeticUI", targets: ["EnergeticUI"]),
         .executable(name: "CapsulePipelineDemo", targets: ["CapsulePipelineDemo"]),
         .executable(name: "capsule-cli", targets: ["CapsuleCLI"]),
-        .executable(name: "energetic-cli", targets: ["EnergeticCLI"])
+        .executable(name: "energetic-cli", targets: ["EnergeticCLI"]),
+        .executable(name: "EnergeticVisualizationDemo", targets: ["EnergeticVisualizationDemo"])
     ],
     dependencies: [
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.1.0")
@@ -61,6 +62,11 @@ let package = Package(
             name: "EnergeticCLI",
             dependencies: ["SharedInfrastructure", "EnergeticCore"],
             path: "Sources/EnergeticCLI"
+        ),
+        .executableTarget(
+            name: "EnergeticVisualizationDemo",
+            dependencies: ["SharedInfrastructure", "EnergeticCore", "EnergeticUI"],
+            path: "Sources/EnergeticVisualizationDemo"
         ),
         .testTarget(
             name: "SharedInfrastructureTests",

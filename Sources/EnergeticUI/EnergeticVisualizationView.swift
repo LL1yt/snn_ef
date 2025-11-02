@@ -161,7 +161,7 @@ public struct EnergeticVisualizationView: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color(.secondarySystemBackground))
+                .fill(Color.secondary.opacity(0.12))
         )
     }
 
@@ -200,7 +200,7 @@ public struct EnergeticVisualizationView: View {
                     .padding(8)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.tertiarySystemBackground))
+                            .fill(Color.secondary.opacity(0.08))
                     )
                 }
             }
@@ -240,7 +240,7 @@ public struct EnergeticVisualizationView: View {
                         .padding(8)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(Color(.tertiaryLabel), lineWidth: 0.5)
+                                .strokeBorder(Color.secondary.opacity(0.4), lineWidth: 0.5)
                         )
                     }
                 }
