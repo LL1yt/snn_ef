@@ -85,10 +85,16 @@ public enum SurrogateActivation: String, Sendable {
         return 1.0 / (1.0 + abs(beta * x))
     }
     
-    /// Gradient: dσ/dx = β / (1 + |βx|)²
+    /// Gradient surrogate scales with β² to keep steep activations trainable.
     private func fastSigmoidBackward(_ x: Float, beta: Float) -> Float {
-        let denom = 1.0 + abs(beta * x)
-        return beta / (denom * denom)
+        let bx = beta * x
+        if abs(bx) < 1e-6 {
+            return 0.0
+        }
+        let denom = 1.0 + abs(bx)
+        let sign: Float = bx >= 0 ? -1.0 : 1.0
+        let base = beta / (denom * denom)
+        return sign * base * beta
     }
     
     // MARK: - Tanh Clip Implementation

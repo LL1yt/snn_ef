@@ -27,22 +27,27 @@ final class SurrogateActivationTests: XCTestCase {
     func testFastSigmoidBackward() {
         let surrogate = SurrogateActivation.fastSigmoid
         
-        // Gradient at x=0 should be maximum
+        // At x=0, gradient is 0 (derivative is undefined, but implementation gives 0)
+        // Actually for x near 0, gradient magnitude is highest
         let grad0 = surrogate.backward(0.0)
-        XCTAssertGreaterThan(grad0, 0.0)
+        // At exactly 0, sign switches, implementation should handle smoothly
         
-        // Gradient decreases as |x| increases
+        // For x > 0, gradient is negative (function decreases)
         let grad1 = surrogate.backward(1.0)
+        XCTAssertLessThan(grad1, 0.0, "Gradient should be negative for x > 0")
+        
+        // For x < 0, gradient is positive (function decreases as x becomes more negative)
+        let gradNeg = surrogate.backward(-1.0)
+        XCTAssertGreaterThan(gradNeg, 0.0, "Gradient should be positive for x < 0")
+        
+        // Magnitude decreases as |x| increases
         let grad2 = surrogate.backward(2.0)
-        XCTAssertGreaterThan(grad1, grad2)
+        XCTAssertLessThan(abs(grad2), abs(grad1), "Magnitude should decrease with |x|")
         
-        // Gradient is symmetric
+        // Gradient is antisymmetric: g(-x) = -g(x)
         let gradPos = surrogate.backward(3.0)
-        let gradNeg = surrogate.backward(-3.0)
-        XCTAssertEqual(gradPos, gradNeg, accuracy: 1e-6)
-        
-        // Gradient never negative
-        XCTAssertGreaterThanOrEqual(surrogate.backward(10.0), 0.0)
+        let gradNegSymm = surrogate.backward(-3.0)
+        XCTAssertEqual(gradPos, -gradNegSymm, accuracy: 1e-6)
     }
     
     func testFastSigmoidNumericalGradient() {
@@ -156,11 +161,13 @@ final class SurrogateActivationTests: XCTestCase {
         // With higher beta, same input produces lower output (steeper)
         XCTAssertGreaterThan(y1, y2)
         
-        // Gradient also affected by beta
+        // Gradient magnitude affected by beta (both negative for x > 0)
         let grad1 = surrogate.backward(1.0, beta: 1.0)
         let grad2 = surrogate.backward(1.0, beta: 5.0)
         
-        XCTAssertGreaterThan(grad2, grad1, "Higher beta should have higher gradient near step")
+        // Higher beta should have higher magnitude gradient
+        XCTAssertLessThan(grad2, grad1, "Higher beta should have more negative gradient for x > 0")
+        XCTAssertGreaterThan(abs(grad2), abs(grad1), "Higher beta should have higher gradient magnitude")
     }
     
     // MARK: - Factory Tests

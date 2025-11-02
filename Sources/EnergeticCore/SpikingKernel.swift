@@ -47,7 +47,7 @@ public struct SpikingKernel: Sendable {
     
     // MARK: - Initialization
     
-    /// Creates a SpikingKernel with random initialization.
+    /// Creates a SpikingKernel with deterministic initialization.
     ///
     /// - Parameters:
     ///   - config: SNN configuration from RouterConfig
@@ -67,19 +67,46 @@ public struct SpikingKernel: Sendable {
             throw RouterError.invalidConfiguration("parameter_count must be >= 11 for minimal network")
         }
         
-        let hiddenDim = (config.parameterCount - 3) / 8
+        let rawHiddenDim = (config.parameterCount - 3) / 8
+        let hiddenDim = max(1, rawHiddenDim)
         self.hiddenDim = hiddenDim
         
-        // Initialize weights with Xavier/He initialization
-        let scale = sqrt(2.0 / Float(4 + hiddenDim))
+        // Deterministic lightweight initialization keeps unit tests reproducible.
+        var inputWeights: [Float] = []
+        inputWeights.reserveCapacity(hiddenDim * 4)
+        let baseInput = SIMD4<Float>(0.022, 0.018, 0.040, 0.012)
         
-        self.wIn = (0..<(hiddenDim * 4)).map { _ in Float.random(in: -scale...scale) }
+        for i in 0..<hiddenDim {
+            let phase = Float(i) * 0.37
+            let scaleFactor = 0.7 + 0.3 * sin(phase)
+            let scaled = baseInput * scaleFactor
+            inputWeights.append(contentsOf: [scaled.x, scaled.y, scaled.z, scaled.w])
+        }
+        self.wIn = inputWeights
         self.bIn = [Float](repeating: 0, count: hiddenDim)
         
-        self.wEnergy = (0..<hiddenDim).map { _ in Float.random(in: -scale...scale) }
+        var energyWeights: [Float] = []
+        energyWeights.reserveCapacity(hiddenDim)
+        let denom = Float(hiddenDim)
+        for i in 0..<hiddenDim {
+            let position = denom > 1 ? Float(i) / (denom - 1) : 0.0
+            let weight = (0.45 + 0.35 * position) / denom
+            energyWeights.append(weight)
+        }
+        self.wEnergy = energyWeights
         self.bEnergy = 0.0
         
-        self.wDelta = (0..<(hiddenDim * 2)).map { _ in Float.random(in: -scale...scale) }
+        var routingWeights: [Float] = []
+        routingWeights.reserveCapacity(hiddenDim * 2)
+        for i in 0..<hiddenDim {
+            let phase = Float(i) * 0.5
+            routingWeights.append(0.15 * sin(phase))
+        }
+        for i in 0..<hiddenDim {
+            let phase = Float(i + 1) * 0.5
+            routingWeights.append(0.15 * cos(phase))
+        }
+        self.wDelta = routingWeights
         self.bDelta = SIMD2(0, 0)
     }
     
@@ -95,36 +122,39 @@ public struct SpikingKernel: Sendable {
         input: SIMD4<Float>,
         membrane: inout Float
     ) -> SpikingOutput {
-        // 1. Update membrane potential: V ← decay·V + W_in·input + b_in
         var hidden = [Float](repeating: 0, count: hiddenDim)
         
-        // Matrix-vector multiply: hidden = W_in * input
         for i in 0..<hiddenDim {
-            var sum: Float = 0
-            for j in 0..<4 {
-                let inputVal: Float
-                switch j {
-                case 0: inputVal = input.x
-                case 1: inputVal = input.y
-                case 2: inputVal = input.z
-                case 3: inputVal = input.w
-                default: inputVal = 0
-                }
-                sum += wIn[i * 4 + j] * inputVal
-            }
-            hidden[i] = decay * membrane + sum + bIn[i]
+            let base = i * 4
+            var sum = wIn[base] * input.x
+            sum += wIn[base + 1] * input.y
+            sum += wIn[base + 2] * input.z
+            sum += wIn[base + 3] * input.w
+            sum += bIn[i]
+            hidden[i] = max(0.0, sum)
         }
         
-        // Apply activation (ReLU for hidden layer)
-        vDSP_vthres(hidden, 1, [0.0], &hidden, 1, vDSP_Length(hiddenDim))
+        let hiddenSum = hidden.reduce(0, +)
+        let hiddenAverage = hiddenDim > 0 ? hiddenSum / Float(hiddenDim) : 0.0
+        // Membrane integrates hidden drive plus an energy-sensitive boost to preserve multi-step dynamics.
+        let energyNormalized = max(0.0, min(input.z, 1.0))
+        let energyBoost = energyNormalized * threshold * 0.4
+        let contributionCap = threshold * 0.8
+        let membraneContribution = min(hiddenAverage + energyBoost, contributionCap)
+        let membraneUpdated = decay * membrane + membraneContribution
         
-        // 2. Compute outputs
-        // Energy: energyNext = W_energy · hidden + b_energy
+        let spike = membraneUpdated >= threshold
+        
+        if spike {
+            membrane = resetValue
+        } else {
+            membrane = max(0.0, membraneUpdated)
+        }
+        
         var energyNext: Float = bEnergy
         vDSP_dotpr(wEnergy, 1, hidden, 1, &energyNext, vDSP_Length(hiddenDim))
-        energyNext += bEnergy
+        energyNext = max(0.0, energyNext)
         
-        // Delta XY: deltaXY = tanh(W_delta · hidden + b_delta)
         var deltaX: Float = bDelta.x
         var deltaY: Float = bDelta.y
         
@@ -133,19 +163,7 @@ public struct SpikingKernel: Sendable {
             deltaY += wDelta[hiddenDim + i] * hidden[i]
         }
         
-        let deltaXY = SIMD2(tanh(deltaX), tanh(deltaY))
-        
-        // 3. Check spike condition: spike = (V >= threshold)
-        // Use surrogate for differentiability
-        let v = hidden.reduce(0, +) / Float(hiddenDim)  // Simple aggregation
-        membrane = v
-        
-        let spike = v >= threshold
-        
-        // 4. Reset membrane if spike occurred
-        if spike {
-            membrane = resetValue
-        }
+        let deltaXY = SIMD2<Float>(tanh(deltaX), tanh(deltaY))
         
         return SpikingOutput(
             energyNext: energyNext,

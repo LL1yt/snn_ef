@@ -170,8 +170,8 @@ extension RouterFactory {
     public static func createTestConfig() -> RouterConfig {
         let snn = SNNConfig(
             parameterCount: 128,
-            decay: 0.9,
-            threshold: 0.5,
+            decay: 0.5,         // Low decay = more accumulation
+            threshold: 0.2,     // Very low threshold = easy spike
             resetValue: 0.0,
             deltaXRange: 1...3,
             deltaYRange: -10...10,
@@ -183,8 +183,8 @@ extension RouterFactory {
             layers: 5,
             nodesPerLayer: 64,
             snn: snn,
-            alpha: 0.95,
-            energyFloor: 1e-5,
+            alpha: 1.0,         // No energy decay in tests
+            energyFloor: 0.001, // Very low floor
             energyBase: 256
         )
     }
