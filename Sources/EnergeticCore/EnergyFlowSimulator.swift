@@ -12,24 +12,36 @@ public final class EnergyFlowSimulator {
     private let maxSteps: Int
     
     // MARK: - State
-    
+
     /// Currently active packets
     private var activePackets: [EnergyPacket]
-    
+
     /// Membrane potentials for each active packet
     private var membranes: [Float]
-    
+
     /// Accumulated output energy per stream ID
     private var outputAccumulator: [Int: Float]
-    
+
     /// Current simulation step
     private var currentStep: Int
-    
+
     /// Completed stream IDs
     private var completedStreams: Set<Int>
-    
+
     /// Dead stream IDs (energy below floor)
     private var deadStreams: Set<Int>
+
+    /// Packet trace events per stream ID
+    private var traceEvents: [Int: [EnergyFlowFrame.PacketTraceEvent]]
+
+    /// Total spike count
+    private var totalSpikeCount: Int
+
+    /// Spike counts per layer
+    private var spikeCountsPerLayer: [Int: Int]
+
+    /// Spike counts per stream
+    private var spikeCountsPerStream: [Int: Int]
     
     // MARK: - Initialization
     
@@ -46,13 +58,22 @@ public final class EnergyFlowSimulator {
     ) {
         self.router = router
         self.maxSteps = maxSteps
-        
+
         self.activePackets = initialPackets
         self.membranes = [Float](repeating: 0, count: initialPackets.count)
         self.outputAccumulator = [:]
         self.currentStep = 0
         self.completedStreams = []
         self.deadStreams = []
+        self.traceEvents = [:]
+        self.totalSpikeCount = 0
+        self.spikeCountsPerLayer = [:]
+        self.spikeCountsPerStream = [:]
+
+        // Initialize trace events for each stream
+        for packet in initialPackets {
+            traceEvents[packet.streamID] = []
+        }
     }
     
     // MARK: - Simulation
@@ -65,38 +86,61 @@ public final class EnergyFlowSimulator {
         guard !activePackets.isEmpty && currentStep < maxSteps else {
             return false
         }
-        
+
         // Track packets reaching output
         var nextPackets: [EnergyPacket] = []
         var nextMembranes: [Float] = []
-        
+
         for i in 0..<activePackets.count {
             let packet = activePackets[i]
             var membrane = membranes[i]
-            
-            // Check if packet reached output layer
-            if router.grid.isOutputLayer(packet.x) {
-                // Accumulate output energy
-                outputAccumulator[packet.streamID, default: 0] += packet.energy
-                completedStreams.insert(packet.streamID)
-                continue
-            }
-            
-            // Route packet
-            if let nextPacket = router.route(packet: packet, membrane: &membrane) {
-                nextPackets.append(nextPacket)
-                nextMembranes.append(membrane)
+
+            // Route packet with detailed information
+            if let result = router.routeDetailed(packet: packet, membrane: &membrane) {
+                // Record trace event
+                let event = EnergyFlowFrame.PacketTraceEvent(
+                    step: currentStep,
+                    layer: packet.x,
+                    node: packet.y,
+                    energy: packet.energy,
+                    membrane: membrane,
+                    spike: result.spike
+                )
+                traceEvents[packet.streamID, default: []].append(event)
+
+                // Update spike statistics
+                if result.spike {
+                    totalSpikeCount += 1
+                    spikeCountsPerLayer[packet.x, default: 0] += 1
+                    spikeCountsPerStream[packet.streamID, default: 0] += 1
+                }
+
+                // Handle result
+                if result.reachedOutput {
+                    outputAccumulator[packet.streamID, default: 0] += packet.energy
+                    completedStreams.insert(packet.streamID)
+                } else if result.died {
+                    deadStreams.insert(packet.streamID)
+                } else if let nextPacket = result.nextPacket {
+                    nextPackets.append(nextPacket)
+                    nextMembranes.append(membrane)
+                }
             } else {
-                // Packet died
-                deadStreams.insert(packet.streamID)
+                // Fallback: packet died or reached output
+                if router.grid.isOutputLayer(packet.x) {
+                    outputAccumulator[packet.streamID, default: 0] += packet.energy
+                    completedStreams.insert(packet.streamID)
+                } else {
+                    deadStreams.insert(packet.streamID)
+                }
             }
         }
-        
+
         // Update state
         activePackets = nextPackets
         membranes = nextMembranes
         currentStep += 1
-        
+
         return !activePackets.isEmpty
     }
     
@@ -228,6 +272,34 @@ public final class EnergyFlowSimulator {
 
         let totalActiveEnergy = packets.reduce(Float(0)) { $0 + $1.energy }
 
+        // Build packet traces
+        var traces: [Int: EnergyFlowFrame.PacketTrace] = [:]
+        for (streamID, events) in traceEvents {
+            if !events.isEmpty {
+                traces[streamID] = EnergyFlowFrame.PacketTrace(
+                    streamID: streamID,
+                    events: events
+                )
+            }
+        }
+
+        // Build spike summary
+        let spikeSummary: EnergyFlowFrame.SpikeSummary?
+        if totalSpikeCount > 0 || currentStep > 0 {
+            let totalSteps = max(currentStep, 1)
+            let totalPacketSteps = traceEvents.values.reduce(0) { $0 + $1.count }
+            let rate = totalPacketSteps > 0 ? Float(totalSpikeCount) / Float(totalPacketSteps) : 0.0
+
+            spikeSummary = EnergyFlowFrame.SpikeSummary(
+                totalSpikes: totalSpikeCount,
+                spikesPerLayer: spikeCountsPerLayer,
+                spikesPerStream: spikeCountsPerStream,
+                spikeRate: rate
+            )
+        } else {
+            spikeSummary = nil
+        }
+
         return EnergyFlowFrame(
             step: currentStep,
             grid: gridDescriptor,
@@ -237,7 +309,9 @@ public final class EnergyFlowSimulator {
             completedStreams: completedStreams,
             deadStreams: deadStreams,
             totalActiveEnergy: totalActiveEnergy,
-            membraneSummary: membraneSummary
+            membraneSummary: membraneSummary,
+            packetTraces: traces,
+            spikeSummary: spikeSummary
         )
     }
 }

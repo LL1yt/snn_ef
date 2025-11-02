@@ -13,6 +13,8 @@ public struct EnergyFlowFrame: Sendable, Identifiable {
     public let deadStreams: Set<Int>
     public let totalActiveEnergy: Float
     public let membraneSummary: MembraneSummary?
+    public let packetTraces: [Int: PacketTrace]
+    public let spikeSummary: SpikeSummary?
 
     public init(
         id: UUID = UUID(),
@@ -25,7 +27,9 @@ public struct EnergyFlowFrame: Sendable, Identifiable {
         completedStreams: Set<Int>,
         deadStreams: Set<Int>,
         totalActiveEnergy: Float,
-        membraneSummary: MembraneSummary?
+        membraneSummary: MembraneSummary?,
+        packetTraces: [Int: PacketTrace] = [:],
+        spikeSummary: SpikeSummary? = nil
     ) {
         self.id = id
         self.step = step
@@ -38,6 +42,8 @@ public struct EnergyFlowFrame: Sendable, Identifiable {
         self.deadStreams = deadStreams
         self.totalActiveEnergy = totalActiveEnergy
         self.membraneSummary = membraneSummary
+        self.packetTraces = packetTraces
+        self.spikeSummary = spikeSummary
     }
 
     public var maxLayerEnergy: Float {
@@ -103,6 +109,92 @@ public struct EnergyFlowFrame: Sendable, Identifiable {
             self.min = min
             self.max = max
             self.average = average
+        }
+    }
+
+    /// Trace event for a single packet at a single step
+    public struct PacketTraceEvent: Sendable, Identifiable {
+        public let id: UUID
+        public let step: Int
+        public let layer: Int
+        public let node: Int
+        public let energy: Float
+        public let membrane: Float
+        public let spike: Bool
+
+        public init(
+            id: UUID = UUID(),
+            step: Int,
+            layer: Int,
+            node: Int,
+            energy: Float,
+            membrane: Float,
+            spike: Bool
+        ) {
+            self.id = id
+            self.step = step
+            self.layer = layer
+            self.node = node
+            self.energy = energy
+            self.membrane = membrane
+            self.spike = spike
+        }
+    }
+
+    /// Complete trace history for a single stream
+    public struct PacketTrace: Sendable, Identifiable {
+        public let streamID: Int
+        public let events: [PacketTraceEvent]
+
+        public init(streamID: Int, events: [PacketTraceEvent]) {
+            self.streamID = streamID
+            self.events = events
+        }
+
+        public var id: Int { streamID }
+
+        public var totalSpikes: Int {
+            events.filter(\.spike).count
+        }
+
+        public var firstEvent: PacketTraceEvent? {
+            events.first
+        }
+
+        public var lastEvent: PacketTraceEvent? {
+            events.last
+        }
+
+        public var layerPath: [Int] {
+            events.map(\.layer)
+        }
+    }
+
+    /// Summary of spike activity across the simulation
+    public struct SpikeSummary: Sendable {
+        public let totalSpikes: Int
+        public let spikesPerLayer: [Int: Int]
+        public let spikesPerStream: [Int: Int]
+        public let spikeRate: Float
+
+        public init(
+            totalSpikes: Int,
+            spikesPerLayer: [Int: Int],
+            spikesPerStream: [Int: Int],
+            spikeRate: Float
+        ) {
+            self.totalSpikes = totalSpikes
+            self.spikesPerLayer = spikesPerLayer
+            self.spikesPerStream = spikesPerStream
+            self.spikeRate = spikeRate
+        }
+
+        public var layersWithSpikes: Int {
+            spikesPerLayer.filter { $0.value > 0 }.count
+        }
+
+        public var activeStreams: Int {
+            spikesPerStream.filter { $0.value > 0 }.count
         }
     }
 }
