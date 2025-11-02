@@ -5,11 +5,21 @@ import SharedInfrastructure
 
 public struct EnergeticUIPreview: View {
     private let snapshot: ConfigSnapshot?
+    private let routerConfig: RouterConfig
+    private let samplePackets: [EnergyPacket]
+
     @State private var loadedSnapshot: ConfigPipelineSnapshot?
     @State private var lastRouterEvent: Date?
 
     public init(snapshot: ConfigSnapshot? = try? ConfigCenter.load()) {
         self.snapshot = snapshot
+        if let root = snapshot?.root, let config = try? RouterFactory.createFrom(root.router) {
+            self.routerConfig = config
+        } else {
+            self.routerConfig = RouterFactory.createTestConfig()
+        }
+        self.samplePackets = EnergeticUIPreview.makeSamplePackets(config: routerConfig)
+
         if let root = snapshot?.root {
             _loadedSnapshot = State(initialValue: PipelineSnapshotExporter.load(from: root))
         } else {
@@ -19,7 +29,8 @@ public struct EnergeticUIPreview: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
             if let snapshot {
                 let router = snapshot.root.router
                 Text("Router Dashboard")
@@ -67,7 +78,15 @@ public struct EnergeticUIPreview: View {
                     .foregroundColor(.secondary)
             }
 
-            Spacer()
+                Divider()
+
+                EnergeticVisualizationView(
+                    config: routerConfig,
+                    initialPackets: samplePackets,
+                    maxSteps: 256,
+                    title: "Simulation Preview"
+                )
+            }
         }
         .padding()
     }
@@ -81,4 +100,17 @@ public struct EnergeticUIPreview: View {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+
+    private static func makeSamplePackets(config: RouterConfig) -> [EnergyPacket] {
+        let nodes = max(config.nodesPerLayer, 1)
+        let maxIndex = max(nodes - 1, 0)
+        let quarterY = min(nodes / 4, maxIndex)
+        let midY = min(nodes / 2, maxIndex)
+        let threeQuarterY = min((3 * nodes) / 4, maxIndex)
+        return [
+            EnergyPacket(streamID: 1, x: 0, y: quarterY, energy: 128.0, time: 0),
+            EnergyPacket(streamID: 2, x: 0, y: midY, energy: 96.0, time: 0),
+            EnergyPacket(streamID: 3, x: 0, y: threeQuarterY, energy: 64.0, time: 0)
+        ]
+    }
 }

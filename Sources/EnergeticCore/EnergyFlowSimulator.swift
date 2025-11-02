@@ -162,6 +162,84 @@ public final class EnergyFlowSimulator {
     public var isFinished: Bool {
         activePackets.isEmpty || currentStep >= maxSteps
     }
+
+    /// Produces a detailed snapshot of the current simulator state.
+    public func snapshot() -> EnergyFlowFrame {
+        let gridDescriptor = EnergyFlowFrame.GridDescriptor(
+            layers: router.grid.layers,
+            nodesPerLayer: router.grid.nodesPerLayer
+        )
+
+        var packets: [EnergyFlowFrame.PacketState] = []
+        packets.reserveCapacity(activePackets.count)
+
+        var layerAggregates: [Int: (energy: Float, count: Int)] = [:]
+        layerAggregates.reserveCapacity(router.grid.layers)
+
+        for (index, packet) in activePackets.enumerated() {
+            let membrane = index < membranes.count ? membranes[index] : 0
+            packets.append(
+                EnergyFlowFrame.PacketState(
+                    streamID: packet.streamID,
+                    x: packet.x,
+                    y: packet.y,
+                    energy: packet.energy,
+                    time: packet.time,
+                    membrane: membrane,
+                    index: index
+                )
+            )
+
+            let aggregate = layerAggregates[packet.x] ?? (0, 0)
+            layerAggregates[packet.x] = (
+                aggregate.energy + packet.energy,
+                aggregate.count + 1
+            )
+        }
+
+        var perLayer: [EnergyFlowFrame.LayerEnergy] = []
+        perLayer.reserveCapacity(router.grid.layers)
+
+        for layer in 0..<router.grid.layers {
+            let aggregate = layerAggregates[layer] ?? (0, 0)
+            perLayer.append(
+                EnergyFlowFrame.LayerEnergy(
+                    layer: layer,
+                    packetCount: aggregate.count,
+                    totalEnergy: aggregate.energy
+                )
+            )
+        }
+
+        let membraneSummary: EnergyFlowFrame.MembraneSummary?
+        if !membranes.isEmpty {
+            let minValue = membranes.min() ?? 0
+            let maxValue = membranes.max() ?? 0
+            let sum = membranes.reduce(0, +)
+            let average = sum / Float(membranes.count)
+            membraneSummary = EnergyFlowFrame.MembraneSummary(
+                min: minValue,
+                max: maxValue,
+                average: average
+            )
+        } else {
+            membraneSummary = nil
+        }
+
+        let totalActiveEnergy = packets.reduce(Float(0)) { $0 + $1.energy }
+
+        return EnergyFlowFrame(
+            step: currentStep,
+            grid: gridDescriptor,
+            activePackets: packets,
+            perLayer: perLayer,
+            outputEnergies: outputAccumulator,
+            completedStreams: completedStreams,
+            deadStreams: deadStreams,
+            totalActiveEnergy: totalActiveEnergy,
+            membraneSummary: membraneSummary
+        )
+    }
 }
 
 // MARK: - Simulation Result
