@@ -1,6 +1,7 @@
 import Foundation
 
-public struct PipelineSnapshot: Codable {
+/// Configuration pipeline snapshot for JSON export (config summary)
+public struct ConfigPipelineSnapshot: Codable {
     public struct CapsuleSummary: Codable {
         public let base: Int
         public let blockSize: Int
@@ -25,7 +26,7 @@ public struct PipelineSnapshot: Codable {
 }
 
 public enum PipelineSnapshotExporter {
-    public static func export(snapshot: ConfigSnapshot, fileManager: FileManager = .default) throws -> PipelineSnapshot {
+    public static func export(snapshot: ConfigSnapshot, fileManager: FileManager = .default) throws -> ConfigPipelineSnapshot {
         let pipelineSnapshot = makeSnapshot(from: snapshot)
         let url = try resolvedURL(for: snapshot.root.paths.pipelineSnapshot, fileManager: fileManager)
         try ensureDirectory(for: url, fileManager: fileManager)
@@ -37,13 +38,13 @@ public enum PipelineSnapshotExporter {
         return pipelineSnapshot
     }
 
-    public static func load(from config: ConfigRoot, fileManager: FileManager = .default) -> PipelineSnapshot? {
+    public static func load(from config: ConfigRoot, fileManager: FileManager = .default) -> ConfigPipelineSnapshot? {
         do {
             let url = try resolvedURL(for: config.paths.pipelineSnapshot, fileManager: fileManager)
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(PipelineSnapshot.self, from: data)
+            return try decoder.decode(ConfigPipelineSnapshot.self, from: data)
         } catch {
             return nil
         }
@@ -60,14 +61,14 @@ public enum PipelineSnapshotExporter {
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
-    private static func makeSnapshot(from snapshot: ConfigSnapshot) -> PipelineSnapshot {
+    private static func makeSnapshot(from snapshot: ConfigSnapshot) -> ConfigPipelineSnapshot {
         let root = snapshot.root
-        let capsule = PipelineSnapshot.CapsuleSummary(
+        let capsule = ConfigPipelineSnapshot.CapsuleSummary(
             base: root.capsule.base,
             blockSize: root.capsule.blockSize,
             pipelineExample: root.capsule.pipelineExampleText
         )
-        let router = PipelineSnapshot.RouterSummary(
+        let router = ConfigPipelineSnapshot.RouterSummary(
             layers: root.router.layers,
             nodesPerLayer: root.router.nodesPerLayer,
             parameterCount: root.router.snn.parameterCount,
@@ -86,7 +87,7 @@ public enum PipelineSnapshotExporter {
 
         let hint = CLIRenderer.hint(for: root)
 
-        return PipelineSnapshot(
+        return ConfigPipelineSnapshot(
             generatedAt: Date(),
             profile: root.profile,
             capsule: capsule,

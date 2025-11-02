@@ -35,8 +35,8 @@ final class SharedInfrastructureTests: XCTestCase {
         let snapshot = try ConfigCenter.load(url: url)
 
         XCTAssertEqual(snapshot.root.profile, "baseline")
-        XCTAssertEqual(snapshot.root.capsule.base, 100)
-        XCTAssertEqual(snapshot.root.router.energyConstraints.energyBase, 100)
+        XCTAssertEqual(snapshot.root.capsule.base, 256)
+        XCTAssertEqual(snapshot.root.router.energyConstraints.energyBase, 256)
         XCTAssertEqual(snapshot.root.logging.defaultLevel, LogLevel.info)
     }
 
@@ -47,8 +47,8 @@ final class SharedInfrastructureTests: XCTestCase {
                 XCTFail("Expected energyBaseMismatch, got \(error)")
                 return
             }
-            XCTAssertEqual(capsule, 100)
-            XCTAssertEqual(router, 101)
+            XCTAssertEqual(capsule, 256)
+            XCTAssertEqual(router, 257)
         }
     }
 
@@ -96,7 +96,7 @@ final class SharedInfrastructureTests: XCTestCase {
       enabled: true
       max_input_bytes: 256
       block_size: 320
-      base: 100
+      base: 256
       alphabet: "\(TestConstants.alphabet)"
       prp: "feistel"
       feistel_rounds: 10
@@ -145,7 +145,7 @@ final class SharedInfrastructureTests: XCTestCase {
     private static let invalidEnergyConfig: String = {
         var lines = validConfig.components(separatedBy: "\n")
         if let index = lines.firstIndex(where: { $0.contains("energy_base") }) {
-            lines[index] = "    energy_base: 101"
+            lines[index] = "        energy_base: 257"
         }
         return lines.joined(separator: "\n")
     }()

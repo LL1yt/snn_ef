@@ -112,7 +112,7 @@ final class CLIntegrationTests: XCTestCase {
           enabled: true
           max_input_bytes: 16
           block_size: 48
-          base: 100
+          base: 256
           alphabet: "\(alphabet)"
           prp: "feistel"
           feistel_rounds: 10

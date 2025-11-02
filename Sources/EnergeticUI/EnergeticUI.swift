@@ -5,7 +5,7 @@ import SharedInfrastructure
 
 public struct EnergeticUIPreview: View {
     private let snapshot: ConfigSnapshot?
-    @State private var loadedSnapshot: PipelineSnapshot?
+    @State private var loadedSnapshot: ConfigPipelineSnapshot?
     @State private var lastRouterEvent: Date?
 
     public init(snapshot: ConfigSnapshot? = try? ConfigCenter.load()) {
@@ -56,7 +56,7 @@ public struct EnergeticUIPreview: View {
                         loadedSnapshot = PipelineSnapshotExporter.load(from: root)
                     }
                     Button("Export Snapshot") {
-                        if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+                        if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
                             loadedSnapshot = exported
                             lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.step")
                         }

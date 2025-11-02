@@ -32,11 +32,11 @@ final class PipelineSnapshotTests: XCTestCase {
         LoggingHub.emit(process: "router.step", level: .info, message: "router event")
         LoggingHub.waitForDrain()
 
-        let exported = try PipelineSnapshotExporter.export(snapshot: snapshot, fileManager: fm)
+        let exported: ConfigPipelineSnapshot = try PipelineSnapshotExporter.export(snapshot: snapshot, fileManager: fm)
         XCTAssertEqual(exported.profile, snapshot.root.profile)
         XCTAssertEqual(exported.capsule.base, snapshot.root.capsule.base)
 
-        let loaded = PipelineSnapshotExporter.load(from: snapshot.root, fileManager: fm)
+        let loaded: ConfigPipelineSnapshot? = PipelineSnapshotExporter.load(from: snapshot.root, fileManager: fm)
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.router.layers, snapshot.root.router.layers)
         XCTAssertFalse(loaded?.lastEvents.isEmpty ?? true)
