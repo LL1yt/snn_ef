@@ -1,295 +1,226 @@
 import Foundation
 
-/// Builds graph structures from configuration, primarily lattice-style graphs
-/// with local and jump connections.
-public struct GraphBuilder {
-
+/// Factory for creating SNN router components and validating configurations.
+public struct RouterFactory {
+    
     // MARK: - Public API
-
-    /// Builds a lattice graph from the given configuration.
+    
+    /// Creates a TemporalGrid from RouterConfig.
     ///
-    /// Lattice structure:
-    /// - Layer 0: input nodes (no incoming edges)
-    /// - Layers 1..L-2: nodes with local (layer j+1) and jump (layer j+2) neighbors
-    /// - Layer L-1: output nodes (no outgoing edges)
-    ///
-    /// - Parameter config: Graph configuration
-    /// - Returns: A fully constructed Graph
-    /// - Throws: `GraphError.invalidConfiguration` if config is invalid
-    public static func buildLattice(config: GraphConfig) throws -> Graph {
-        // Validate configuration
+    /// - Parameter config: Router configuration
+    /// - Returns: Initialized TemporalGrid
+    /// - Throws: `RouterError.invalidConfiguration` if validation fails
+    public static func createGrid(from config: RouterConfig) throws -> TemporalGrid {
         try validateConfig(config)
-
-        // Build edge list
-        let edges = try buildEdgeList(config: config)
-
-        // Convert to CSR format
-        let (rowPtr, colIdx, weights) = convertToCSR(
-            edges: edges,
-            numNodes: config.totalNodes
-        )
-
-        // Initialize positional embeddings
-        let positions = initializePositions(config: config)
-
-        // Create graph
-        return try Graph(
-            rowPtr: rowPtr,
-            colIdx: colIdx,
-            weights: weights,
-            config: config,
-            nodePositions: positions
-        )
+        return try TemporalGrid(layers: config.layers, nodesPerLayer: config.nodesPerLayer)
     }
-
-    // MARK: - Configuration Validation
-
-    private static func validateConfig(_ config: GraphConfig) throws {
+    
+    /// Creates a RouterConfig from raw parameters with validation.
+    ///
+    /// - Parameters:
+    ///   - layers: Number of layers
+    ///   - nodesPerLayer: Number of nodes per layer
+    ///   - snn: SNN configuration
+    ///   - alpha: Energy decay factor
+    ///   - energyFloor: Minimum energy threshold
+    ///   - energyBase: Energy base (must match capsule.base)
+    /// - Returns: Validated RouterConfig
+    /// - Throws: `RouterError.invalidConfiguration` if validation fails
+    public static func createConfig(
+        layers: Int,
+        nodesPerLayer: Int,
+        snn: SNNConfig,
+        alpha: Float,
+        energyFloor: Float,
+        energyBase: Int
+    ) throws -> RouterConfig {
+        let config = RouterConfig(
+            layers: layers,
+            nodesPerLayer: nodesPerLayer,
+            snn: snn,
+            alpha: alpha,
+            energyFloor: energyFloor,
+            energyBase: energyBase
+        )
+        try validateConfig(config)
+        return config
+    }
+    
+    /// Creates an SNNConfig from raw parameters with validation.
+    ///
+    /// - Parameters:
+    ///   - parameterCount: Total trainable parameters
+    ///   - decay: Membrane decay factor
+    ///   - threshold: Spike threshold
+    ///   - resetValue: Post-spike reset value
+    ///   - deltaXRange: X jump range
+    ///   - deltaYRange: Y movement range
+    ///   - surrogate: Surrogate function name
+    ///   - dt: Time step
+    /// - Returns: Validated SNNConfig
+    /// - Throws: `RouterError.invalidConfiguration` if validation fails
+    public static func createSNNConfig(
+        parameterCount: Int,
+        decay: Float,
+        threshold: Float,
+        resetValue: Float,
+        deltaXRange: ClosedRange<Int>,
+        deltaYRange: ClosedRange<Int>,
+        surrogate: String,
+        dt: Int
+    ) throws -> SNNConfig {
+        let config = SNNConfig(
+            parameterCount: parameterCount,
+            decay: decay,
+            threshold: threshold,
+            resetValue: resetValue,
+            deltaXRange: deltaXRange,
+            deltaYRange: deltaYRange,
+            surrogate: surrogate,
+            dt: dt
+        )
+        try validateSNNConfig(config)
+        return config
+    }
+    
+    // MARK: - Validation
+    
+    /// Validates RouterConfig constraints.
+    private static func validateConfig(_ config: RouterConfig) throws {
+        // Grid dimensions
         guard config.layers >= 1 else {
-            throw GraphError.invalidConfiguration("layers must be >= 1")
+            throw RouterError.invalidConfiguration("layers must be >= 1, got \(config.layers)")
         }
-
+        
         guard config.nodesPerLayer >= 1 else {
-            throw GraphError.invalidConfiguration("nodesPerLayer must be >= 1")
+            throw RouterError.invalidConfiguration("nodesPerLayer must be >= 1, got \(config.nodesPerLayer)")
         }
-
-        guard config.localNeighbors >= 0 else {
-            throw GraphError.invalidConfiguration("localNeighbors must be >= 0")
+        
+        // Energy parameters
+        guard config.alpha > 0 && config.alpha <= 1 else {
+            throw RouterError.invalidConfiguration("alpha must be in (0, 1], got \(config.alpha)")
         }
-
-        guard config.jumpNeighbors >= 0 else {
-            throw GraphError.invalidConfiguration("jumpNeighbors must be >= 0")
+        
+        guard config.energyFloor >= 0 else {
+            throw RouterError.invalidConfiguration("energyFloor must be >= 0, got \(config.energyFloor)")
         }
-
-        // Warn if neighbors exceed layer size (not an error, but suboptimal)
-        if config.localNeighbors > config.nodesPerLayer {
-            // This is allowed, will just connect to available nodes
+        
+        guard config.energyBase > 0 else {
+            throw RouterError.invalidConfiguration("energyBase must be > 0, got \(config.energyBase)")
         }
+        
+        // Validate nested SNN config
+        try validateSNNConfig(config.snn)
     }
-
-    // MARK: - Edge List Construction
-
-    /// Builds a list of edges with source, destination, and initial weights.
-    private static func buildEdgeList(config: GraphConfig) throws -> [(src: Int, dst: Int, weight: Float)] {
-        var edges: [(Int, Int, Float)] = []
-        edges.reserveCapacity(config.estimatedEdges)
-
-        for layer in 0..<config.layers {
-            for nodeIdx in 0..<config.nodesPerLayer {
-                let srcFlatIdx = layer * config.nodesPerLayer + nodeIdx
-
-                // Generate local edges (to layer + 1)
-                if layer + 1 < config.layers {
-                    let localEdges = generateLocalEdges(
-                        srcLayer: layer,
-                        srcIndex: nodeIdx,
-                        config: config
-                    )
-                    edges.append(contentsOf: localEdges)
-                }
-
-                // Generate jump edges (to layer + 2)
-                if layer + 2 < config.layers {
-                    let jumpEdges = generateJumpEdges(
-                        srcLayer: layer,
-                        srcIndex: nodeIdx,
-                        config: config
-                    )
-                    edges.append(contentsOf: jumpEdges)
-                }
-            }
+    
+    /// Validates SNNConfig constraints.
+    private static func validateSNNConfig(_ config: SNNConfig) throws {
+        // Parameter count
+        guard config.parameterCount >= 1 else {
+            throw RouterError.invalidConfiguration("parameterCount must be >= 1, got \(config.parameterCount)")
         }
-
-        return edges
-    }
-
-    /// Generates local edges (to next layer) for a source node.
-    ///
-    /// Strategy: Connect to `localNeighbors` nodes in the next layer,
-    /// centered around the same index with some spread.
-    private static func generateLocalEdges(
-        srcLayer: Int,
-        srcIndex: Int,
-        config: GraphConfig
-    ) -> [(src: Int, dst: Int, weight: Float)] {
-        let srcFlatIdx = srcLayer * config.nodesPerLayer + srcIndex
-        let dstLayer = srcLayer + 1
-
-        var edges: [(Int, Int, Float)] = []
-        edges.reserveCapacity(config.localNeighbors)
-
-        guard dstLayer < config.layers else { return edges }
-
-        // Connect to neighbors centered around same index
-        // Spread: [-spread, +spread] around srcIndex
-        let spread = (config.localNeighbors + 1) / 2
-
-        // Calculate target indices with wraparound
-        var targetIndices: Set<Int> = []
-
-        for offset in -spread...spread {
-            if targetIndices.count >= config.localNeighbors {
-                break
-            }
-
-            var targetIdx = srcIndex + offset
-
-            // Clamp to valid range (no wraparound for simplicity)
-            if targetIdx < 0 {
-                targetIdx = 0
-            } else if targetIdx >= config.nodesPerLayer {
-                targetIdx = config.nodesPerLayer - 1
-            }
-
-            targetIndices.insert(targetIdx)
+        
+        // Decay
+        guard config.decay > 0 && config.decay < 1 else {
+            throw RouterError.invalidConfiguration("decay must be in (0, 1), got \(config.decay)")
         }
-
-        // If we still need more neighbors, add random ones
-        while targetIndices.count < config.localNeighbors && targetIndices.count < config.nodesPerLayer {
-            let randomIdx = Int.random(in: 0..<config.nodesPerLayer)
-            targetIndices.insert(randomIdx)
+        
+        // Threshold
+        guard config.threshold > 0 && config.threshold <= 1 else {
+            throw RouterError.invalidConfiguration("threshold must be in (0, 1], got \(config.threshold)")
         }
-
-        // Create edges
-        for dstIndex in targetIndices.sorted() {
-            let dstFlatIdx = dstLayer * config.nodesPerLayer + dstIndex
-            edges.append((srcFlatIdx, dstFlatIdx, 1.0))
+        
+        // Delta X range
+        guard config.deltaXRange.lowerBound >= 1 else {
+            throw RouterError.invalidConfiguration(
+                "deltaXRange.lowerBound must be >= 1, got \(config.deltaXRange.lowerBound)"
+            )
         }
-
-        return edges
-    }
-
-    /// Generates jump edges (to layer + 2) for a source node.
-    ///
-    /// Strategy: Connect to `jumpNeighbors` nodes two layers ahead,
-    /// with random selection for diversity.
-    private static func generateJumpEdges(
-        srcLayer: Int,
-        srcIndex: Int,
-        config: GraphConfig
-    ) -> [(src: Int, dst: Int, weight: Float)] {
-        let srcFlatIdx = srcLayer * config.nodesPerLayer + srcIndex
-        let dstLayer = srcLayer + 2
-
-        var edges: [(Int, Int, Float)] = []
-        edges.reserveCapacity(config.jumpNeighbors)
-
-        guard dstLayer < config.layers else { return edges }
-        guard config.jumpNeighbors > 0 else { return edges }
-
-        // Select random target indices (could be deterministic with seed)
-        var targetIndices: Set<Int> = []
-
-        // Start with same index as anchor
-        targetIndices.insert(srcIndex % config.nodesPerLayer)
-
-        // Add random neighbors
-        while targetIndices.count < config.jumpNeighbors && targetIndices.count < config.nodesPerLayer {
-            let randomIdx = Int.random(in: 0..<config.nodesPerLayer)
-            targetIndices.insert(randomIdx)
+        
+        guard config.deltaXRange.upperBound >= config.deltaXRange.lowerBound else {
+            throw RouterError.invalidConfiguration(
+                "deltaXRange.upperBound must be >= lowerBound"
+            )
         }
-
-        // Create edges
-        for dstIndex in targetIndices.sorted() {
-            let dstFlatIdx = dstLayer * config.nodesPerLayer + dstIndex
-            edges.append((srcFlatIdx, dstFlatIdx, 1.0))
+        
+        // Delta Y range must contain 0
+        guard config.deltaYRange.contains(0) else {
+            throw RouterError.invalidConfiguration(
+                "deltaYRange must contain 0, got [\(config.deltaYRange.lowerBound), \(config.deltaYRange.upperBound)]"
+            )
         }
-
-        return edges
-    }
-
-    // MARK: - CSR Conversion
-
-    /// Converts an edge list to CSR format.
-    ///
-    /// - Parameters:
-    ///   - edges: List of (src, dst, weight) tuples
-    ///   - numNodes: Total number of nodes
-    /// - Returns: (rowPtr, colIdx, weights) in CSR format
-    private static func convertToCSR(
-        edges: [(src: Int, dst: Int, weight: Float)],
-        numNodes: Int
-    ) -> (rowPtr: [Int], colIdx: [Int], weights: [Float]) {
-        // Sort edges by source node for CSR construction
-        let sortedEdges = edges.sorted { $0.src < $1.src }
-
-        var rowPtr = Array(repeating: 0, count: numNodes + 1)
-        var colIdx: [Int] = []
-        var weights: [Float] = []
-
-        colIdx.reserveCapacity(sortedEdges.count)
-        weights.reserveCapacity(sortedEdges.count)
-
-        // Build CSR
-        var currentSrc = 0
-        var edgeCount = 0
-
-        for (src, dst, weight) in sortedEdges {
-            // Fill rowPtr for nodes with no edges
-            while currentSrc <= src {
-                rowPtr[currentSrc] = edgeCount
-                currentSrc += 1
-            }
-
-            colIdx.append(dst)
-            weights.append(weight)
-            edgeCount += 1
+        
+        // Time step
+        guard config.dt >= 1 else {
+            throw RouterError.invalidConfiguration("dt must be >= 1, got \(config.dt)")
         }
-
-        // Fill remaining rowPtr entries
-        while currentSrc <= numNodes {
-            rowPtr[currentSrc] = edgeCount
-            currentSrc += 1
+        
+        // Surrogate function (check known types)
+        let validSurrogates = ["fast_sigmoid", "tanh_clip"]
+        guard validSurrogates.contains(config.surrogate) else {
+            throw RouterError.invalidSurrogate(config.surrogate)
         }
-
-        return (rowPtr, colIdx, weights)
-    }
-
-    // MARK: - Positional Embeddings
-
-    /// Initializes positional embeddings for all nodes.
-    ///
-    /// Position encoding:
-    /// - x = layer / (layers - 1) ∈ [0, 1] (0 for single layer)
-    /// - y = index / nodesPerLayer ∈ [0, 1]
-    ///
-    /// - Parameter config: Graph configuration
-    /// - Returns: Array of SIMD2<Float> positions
-    private static func initializePositions(config: GraphConfig) -> [SIMD2<Float>] {
-        var positions: [SIMD2<Float>] = []
-        positions.reserveCapacity(config.totalNodes)
-
-        let layerDenom = max(config.layers - 1, 1)
-        let nodeDenom = max(config.nodesPerLayer - 1, 1)
-
-        for layer in 0..<config.layers {
-            for nodeIdx in 0..<config.nodesPerLayer {
-                let x = Float(layer) / Float(layerDenom)
-                let y = Float(nodeIdx) / Float(nodeDenom)
-                positions.append(SIMD2(x, y))
-            }
-        }
-
-        return positions
     }
 }
 
-// MARK: - Seeded Graph Builder
+// MARK: - Test Helpers
 
-extension GraphBuilder {
-    /// Builds a lattice graph with a fixed random seed for reproducibility.
-    ///
-    /// - Parameters:
-    ///   - config: Graph configuration
-    ///   - seed: Random seed for edge generation
-    /// - Returns: A fully constructed Graph
-    /// - Throws: `GraphError.invalidConfiguration` if config is invalid
-    public static func buildLattice(config: GraphConfig, seed: UInt64) throws -> Graph {
-        // Set random seed (Note: Swift doesn't have global seed, this is a placeholder)
-        // In practice, you'd use a custom RNG or SystemRandomNumberGenerator with seed
-
-        // For now, build without explicit seeding
-        // TODO: Implement seeded RNG for reproducible graphs
-        return try buildLattice(config: config)
+extension RouterFactory {
+    /// Creates a minimal valid configuration for testing.
+    public static func createTestConfig() -> RouterConfig {
+        let snn = SNNConfig(
+            parameterCount: 128,
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...3,
+            deltaYRange: -10...10,
+            surrogate: "fast_sigmoid",
+            dt: 1
+        )
+        
+        return RouterConfig(
+            layers: 5,
+            nodesPerLayer: 64,
+            snn: snn,
+            alpha: 0.95,
+            energyFloor: 1e-5,
+            energyBase: 256
+        )
     }
 }
+
+// MARK: - ConfigCenter Integration
+
+#if canImport(SharedInfrastructure)
+import SharedInfrastructure
+
+extension RouterFactory {
+    /// Creates RouterConfig from ConfigCenter's ConfigRoot.Router.
+    ///
+    /// - Parameter routerConfig: Router configuration from YAML
+    /// - Returns: Validated RouterConfig
+    /// - Throws: `RouterError.invalidConfiguration` if validation fails
+    public static func createFrom(_ routerConfig: ConfigRoot.Router) throws -> RouterConfig {
+        let snn = SNNConfig(
+            parameterCount: routerConfig.snn.parameterCount,
+            decay: Float(routerConfig.snn.decay),
+            threshold: Float(routerConfig.snn.threshold),
+            resetValue: Float(routerConfig.snn.resetValue),
+            deltaXRange: routerConfig.snn.deltaXRange.min...routerConfig.snn.deltaXRange.max,
+            deltaYRange: routerConfig.snn.deltaYRange.min...routerConfig.snn.deltaYRange.max,
+            surrogate: routerConfig.snn.surrogate,
+            dt: routerConfig.snn.dt
+        )
+        
+        return try createConfig(
+            layers: routerConfig.layers,
+            nodesPerLayer: routerConfig.nodesPerLayer,
+            snn: snn,
+            alpha: Float(routerConfig.alpha),
+            energyFloor: Float(routerConfig.energyFloor),
+            energyBase: routerConfig.energyConstraints.energyBase
+        )
+    }
+}
+#endif

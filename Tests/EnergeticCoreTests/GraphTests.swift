@@ -1,362 +1,208 @@
 import XCTest
 @testable import EnergeticCore
 
-final class GraphTests: XCTestCase {
-
-    // MARK: - Test Helpers
-
-    /// Creates a simple 2-layer graph for testing:
-    /// Layer 0: 3 nodes (0, 1, 2)
-    /// Layer 1: 2 nodes (3, 4)
-    ///
-    /// Edges:
-    /// Node 0 → [3, 4]
-    /// Node 1 → [3]
-    /// Node 2 → [4]
-    /// Node 3 → []
-    /// Node 4 → []
-    func makeSimpleGraph() throws -> Graph {
-        let config = GraphConfig(
-            layers: 2,
-            nodesPerLayer: 3,  // Not uniform, but we'll handle it
-            localNeighbors: 2,
-            jumpNeighbors: 0
-        )
-
-        // CSR structure:
-        // Node 0: edges [0, 1] → dsts [3, 4]
-        // Node 1: edge [2] → dst [3]
-        // Node 2: edge [3] → dst [4]
-        // Node 3: no edges
-        // Node 4: no edges
-
-        let rowPtr = [0, 2, 3, 4, 4, 4]  // 5 nodes + 1
-        let colIdx = [3, 4, 3, 4]        // 4 edges
-        let weights: [Float] = [1.0, 1.0, 1.0, 1.0]
-
-        // Positions (approximate for 5 nodes)
-        let positions: [SIMD2<Float>] = [
-            SIMD2(0.0, 0.0),  // Node 0
-            SIMD2(0.0, 0.33), // Node 1
-            SIMD2(0.0, 0.67), // Node 2
-            SIMD2(1.0, 0.0),  // Node 3
-            SIMD2(1.0, 0.5)   // Node 4
-        ]
-
-        // Adjust config for actual node count
-        let actualConfig = GraphConfig(
-            layers: 2,
-            nodesPerLayer: 3,
-            localNeighbors: 2,
-            jumpNeighbors: 0
-        )
-
-        // We need to adjust for total nodes = 5, but config expects 2*3=6
-        // Let's just use 6 nodes with last one having no edges
-
-        let rowPtr6 = [0, 2, 3, 4, 4, 4, 4]
-        let positions6 = positions + [SIMD2(1.0, 1.0)]
-
-        return try Graph(
-            rowPtr: rowPtr6,
-            colIdx: colIdx,
-            weights: weights,
-            config: actualConfig,
-            nodePositions: positions6
-        )
-    }
+final class TemporalGridTests: XCTestCase {
 
     // MARK: - Initialization Tests
-
-    func testGraphInitialization() throws {
-        let config = GraphConfig(layers: 2, nodesPerLayer: 2, localNeighbors: 2, jumpNeighbors: 0)
-
-        let rowPtr = [0, 2, 2, 2, 2]  // 4 nodes, node 0 has 2 edges
-        let colIdx = [2, 3]           // edges to nodes 2, 3
-        let weights: [Float] = [0.5, 1.0]
-        let positions = (0..<4).map { _ in SIMD2<Float>(0, 0) }
-
-        let graph = try Graph(
-            rowPtr: rowPtr,
-            colIdx: colIdx,
-            weights: weights,
-            config: config,
-            nodePositions: positions
-        )
-
-        XCTAssertEqual(graph.numNodes, 4)
-        XCTAssertEqual(graph.numEdges, 2)
-        XCTAssertEqual(graph.rowPtr.count, 5)
-        XCTAssertEqual(graph.colIdx.count, 2)
+    
+    func testGridInitialization() throws {
+        let grid = try TemporalGrid(layers: 10, nodesPerLayer: 1024)
+        
+        XCTAssertEqual(grid.layers, 10)
+        XCTAssertEqual(grid.nodesPerLayer, 1024)
+        XCTAssertEqual(grid.totalNodes, 10 * 1024)
     }
-
-    func testGraphInitializationInvalidRowPtrLength() {
-        let config = GraphConfig(layers: 2, nodesPerLayer: 2, localNeighbors: 1, jumpNeighbors: 0)
-
-        let rowPtr = [0, 1, 2]  // Wrong length (should be 5 for 4 nodes)
-        let colIdx = [1, 2]
-        let weights: [Float] = [1.0, 1.0]
-        let positions = (0..<4).map { _ in SIMD2<Float>(0, 0) }
-
-        XCTAssertThrowsError(try Graph(
-            rowPtr: rowPtr,
-            colIdx: colIdx,
-            weights: weights,
-            config: config,
-            nodePositions: positions
-        )) { error in
-            guard case GraphError.invalidConfiguration = error else {
-                XCTFail("Expected invalidConfiguration error")
+    
+    func testGridInitializationInvalidLayers() {
+        XCTAssertThrowsError(try TemporalGrid(layers: 0, nodesPerLayer: 100)) { error in
+            guard case RouterError.invalidConfiguration(let message) = error else {
+                XCTFail("Expected RouterError.invalidConfiguration")
                 return
+            }
+            XCTAssertTrue(message.contains("layers"))
+        }
+        
+        XCTAssertThrowsError(try TemporalGrid(layers: -5, nodesPerLayer: 100))
+    }
+    
+    func testGridInitializationInvalidNodesPerLayer() {
+        XCTAssertThrowsError(try TemporalGrid(layers: 10, nodesPerLayer: 0)) { error in
+            guard case RouterError.invalidConfiguration(let message) = error else {
+                XCTFail("Expected RouterError.invalidConfiguration")
+                return
+            }
+            XCTAssertTrue(message.contains("nodesPerLayer"))
+        }
+        
+        XCTAssertThrowsError(try TemporalGrid(layers: 10, nodesPerLayer: -3))
+    }
+    
+    // MARK: - Navigation Tests
+    
+    func testAdvanceForward() throws {
+        let grid = try TemporalGrid(layers: 10, nodesPerLayer: 100)
+        
+        XCTAssertEqual(grid.advanceForward(0), 1)
+        XCTAssertEqual(grid.advanceForward(5), 6)
+        XCTAssertEqual(grid.advanceForward(8), 9)
+        XCTAssertEqual(grid.advanceForward(9), 9, "Should clamp at last layer")
+    }
+    
+    func testWrapY() throws {
+        let grid = try TemporalGrid(layers: 5, nodesPerLayer: 10)
+        
+        XCTAssertEqual(grid.wrapY(5), 5, "Within bounds")
+        XCTAssertEqual(grid.wrapY(10), 0, "Wrap at boundary")
+        XCTAssertEqual(grid.wrapY(15), 5, "Wrap beyond boundary")
+        XCTAssertEqual(grid.wrapY(-1), 9, "Negative wrap")
+        XCTAssertEqual(grid.wrapY(-11), 9, "Large negative wrap")
+    }
+    
+    func testClampX() throws {
+        let grid = try TemporalGrid(layers: 8, nodesPerLayer: 50)
+        
+        XCTAssertEqual(grid.clampX(3), 3, "Within bounds")
+        XCTAssertEqual(grid.clampX(-1), 0, "Clamp negative")
+        XCTAssertEqual(grid.clampX(0), 0, "At min")
+        XCTAssertEqual(grid.clampX(7), 7, "At max")
+        XCTAssertEqual(grid.clampX(10), 7, "Clamp above max")
+    }
+    
+    func testIsOutputLayer() throws {
+        let grid = try TemporalGrid(layers: 5, nodesPerLayer: 10)
+        
+        XCTAssertFalse(grid.isOutputLayer(0))
+        XCTAssertFalse(grid.isOutputLayer(3))
+        XCTAssertTrue(grid.isOutputLayer(4), "Last layer is output")
+        XCTAssertTrue(grid.isOutputLayer(5), "Beyond last is also output")
+    }
+    
+    func testIsValidX() throws {
+        let grid = try TemporalGrid(layers: 7, nodesPerLayer: 20)
+        
+        XCTAssertFalse(grid.isValidX(-1))
+        XCTAssertTrue(grid.isValidX(0))
+        XCTAssertTrue(grid.isValidX(3))
+        XCTAssertTrue(grid.isValidX(6))
+        XCTAssertFalse(grid.isValidX(7))
+        XCTAssertFalse(grid.isValidX(100))
+    }
+    
+    func testIsValidY() throws {
+        let grid = try TemporalGrid(layers: 5, nodesPerLayer: 64)
+        
+        XCTAssertFalse(grid.isValidY(-1))
+        XCTAssertTrue(grid.isValidY(0))
+        XCTAssertTrue(grid.isValidY(32))
+        XCTAssertTrue(grid.isValidY(63))
+        XCTAssertFalse(grid.isValidY(64))
+        XCTAssertFalse(grid.isValidY(100))
+    }
+    
+    func testIsValid() throws {
+        let grid = try TemporalGrid(layers: 3, nodesPerLayer: 5)
+        
+        XCTAssertTrue(grid.isValid(x: 0, y: 0))
+        XCTAssertTrue(grid.isValid(x: 2, y: 4))
+        XCTAssertFalse(grid.isValid(x: -1, y: 0))
+        XCTAssertFalse(grid.isValid(x: 0, y: 5))
+        XCTAssertFalse(grid.isValid(x: 3, y: 0))
+    }
+    
+    // MARK: - Index Conversion Tests
+    
+    func testFlatIndex() throws {
+        let grid = try TemporalGrid(layers: 10, nodesPerLayer: 100)
+        
+        XCTAssertEqual(grid.flatIndex(x: 0, y: 0), 0)
+        XCTAssertEqual(grid.flatIndex(x: 0, y: 50), 50)
+        XCTAssertEqual(grid.flatIndex(x: 1, y: 0), 100)
+        XCTAssertEqual(grid.flatIndex(x: 5, y: 25), 5 * 100 + 25)
+    }
+    
+    func testCoordinatesFromIndex() throws {
+        let grid = try TemporalGrid(layers: 10, nodesPerLayer: 100)
+        
+        let (x0, y0) = grid.coordinates(from: 0)
+        XCTAssertEqual(x0, 0)
+        XCTAssertEqual(y0, 0)
+        
+        let (x1, y1) = grid.coordinates(from: 50)
+        XCTAssertEqual(x1, 0)
+        XCTAssertEqual(y1, 50)
+        
+        let (x2, y2) = grid.coordinates(from: 100)
+        XCTAssertEqual(x2, 1)
+        XCTAssertEqual(y2, 0)
+        
+        let (x3, y3) = grid.coordinates(from: 525)
+        XCTAssertEqual(x3, 5)
+        XCTAssertEqual(y3, 25)
+    }
+    
+    func testRoundTripIndexConversion() throws {
+        let grid = try TemporalGrid(layers: 8, nodesPerLayer: 128)
+        
+        for x in 0..<8 {
+            for y in stride(from: 0, to: 128, by: 10) {
+                let flat = grid.flatIndex(x: x, y: y)
+                let (x2, y2) = grid.coordinates(from: flat)
+                XCTAssertEqual(x, x2)
+                XCTAssertEqual(y, y2)
             }
         }
     }
-
-    func testGraphInitializationMismatchedWeights() {
-        let config = GraphConfig(layers: 2, nodesPerLayer: 2, localNeighbors: 1, jumpNeighbors: 0)
-
-        let rowPtr = [0, 1, 1, 1, 1]
-        let colIdx = [2]
-        let weights: [Float] = [1.0, 2.0]  // Wrong length
-        let positions = (0..<4).map { _ in SIMD2<Float>(0, 0) }
-
-        XCTAssertThrowsError(try Graph(
-            rowPtr: rowPtr,
-            colIdx: colIdx,
-            weights: weights,
-            config: config,
-            nodePositions: positions
-        )) { error in
-            guard case GraphError.invalidConfiguration = error else {
-                XCTFail("Expected invalidConfiguration error")
-                return
-            }
-        }
+    
+    // MARK: - Normalization Tests
+    
+    func testNormalizeX() throws {
+        let grid = try TemporalGrid(layers: 10, nodesPerLayer: 100)
+        
+        XCTAssertEqual(grid.normalizeX(0), 0.0, accuracy: 1e-6)
+        XCTAssertEqual(grid.normalizeX(9), 1.0, accuracy: 1e-6)
+        XCTAssertEqual(grid.normalizeX(5), 5.0/9.0, accuracy: 1e-6)
     }
-
-    func testGraphInitializationNonMonotonicRowPtr() {
-        let config = GraphConfig(layers: 2, nodesPerLayer: 2, localNeighbors: 1, jumpNeighbors: 0)
-
-        let rowPtr = [0, 2, 1, 2, 2]  // Non-monotonic at index 1→2
-        let colIdx = [1, 2]
-        let weights: [Float] = [1.0, 1.0]
-        let positions = (0..<4).map { _ in SIMD2<Float>(0, 0) }
-
-        XCTAssertThrowsError(try Graph(
-            rowPtr: rowPtr,
-            colIdx: colIdx,
-            weights: weights,
-            config: config,
-            nodePositions: positions
-        )) { error in
-            guard case GraphError.invalidConfiguration = error else {
-                XCTFail("Expected invalidConfiguration error")
-                return
-            }
-        }
+    
+    func testNormalizeY() throws {
+        let grid = try TemporalGrid(layers: 5, nodesPerLayer: 100)
+        
+        XCTAssertEqual(grid.normalizeY(0), 0.0, accuracy: 1e-6)
+        XCTAssertEqual(grid.normalizeY(99), 1.0, accuracy: 1e-6)
+        XCTAssertEqual(grid.normalizeY(50), 50.0/99.0, accuracy: 1e-3)
     }
-
-    func testGraphInitializationColIdxOutOfBounds() {
-        let config = GraphConfig(layers: 2, nodesPerLayer: 2, localNeighbors: 1, jumpNeighbors: 0)
-
-        let rowPtr = [0, 1, 1, 1, 1]
-        let colIdx = [10]  // Out of bounds (only 4 nodes)
-        let weights: [Float] = [1.0]
-        let positions = (0..<4).map { _ in SIMD2<Float>(0, 0) }
-
-        XCTAssertThrowsError(try Graph(
-            rowPtr: rowPtr,
-            colIdx: colIdx,
-            weights: weights,
-            config: config,
-            nodePositions: positions
-        ))
+    
+    func testNormalizedPosition() throws {
+        let grid = try TemporalGrid(layers: 5, nodesPerLayer: 10)
+        
+        let pos = grid.normalizedPosition(x: 2, y: 5)
+        XCTAssertEqual(pos.x, 2.0/4.0, accuracy: 1e-6)
+        XCTAssertEqual(pos.y, 5.0/9.0, accuracy: 1e-6)
     }
-
-    // MARK: - Node Index Conversion Tests
-
-    func testNodeIndexConversion() throws {
-        let graph = try makeSimpleGraph()
-
-        let node = NodeID(layer: 0, index: 2)
-        let idx = graph.nodeIndex(node)
-        XCTAssertEqual(idx, 2, "Layer 0, index 2 → flat index 2")
-
-        let node2 = NodeID(layer: 1, index: 1)
-        let idx2 = graph.nodeIndex(node2)
-        XCTAssertEqual(idx2, 4, "Layer 1, index 1 → flat index 4 (3 nodes per layer)")
+    
+    func testNormalizeSingleLayer() throws {
+        let grid = try TemporalGrid(layers: 1, nodesPerLayer: 10)
+        
+        XCTAssertEqual(grid.normalizeX(0), 0.0)
+        XCTAssertEqual(grid.normalizeX(5), 0.0, "Single layer always 0")
     }
-
-    func testNodeIDFromIndex() throws {
-        let graph = try makeSimpleGraph()
-
-        let node = graph.nodeID(from: 2)
-        XCTAssertEqual(node.layer, 0)
-        XCTAssertEqual(node.index, 2)
-
-        let node2 = graph.nodeID(from: 4)
-        XCTAssertEqual(node2.layer, 1)
-        XCTAssertEqual(node2.index, 1)
+    
+    func testNormalizeSingleNodePerLayer() throws {
+        let grid = try TemporalGrid(layers: 5, nodesPerLayer: 1)
+        
+        XCTAssertEqual(grid.normalizeY(0), 0.0)
+        XCTAssertEqual(grid.normalizeY(5), 0.0, "Single node always 0")
     }
-
-    func testNodeValidation() throws {
-        let graph = try makeSimpleGraph()
-
-        XCTAssertTrue(graph.isValid(NodeID(layer: 0, index: 0)))
-        XCTAssertTrue(graph.isValid(NodeID(layer: 1, index: 2)))
-
-        XCTAssertFalse(graph.isValid(NodeID(layer: 2, index: 0)), "Layer 2 doesn't exist")
-        XCTAssertFalse(graph.isValid(NodeID(layer: 0, index: 3)), "Index 3 out of bounds")
-        XCTAssertFalse(graph.isValid(NodeID(layer: -1, index: 0)), "Negative layer")
-    }
-
-    // MARK: - Edge Navigation Tests
-
-    func testEdgeRange() throws {
-        let graph = try makeSimpleGraph()
-
-        let node0 = NodeID(layer: 0, index: 0)
-        let range0 = try graph.edgeRange(for: node0)
-        XCTAssertEqual(range0, 0..<2, "Node 0 has edges [0, 1]")
-
-        let node1 = NodeID(layer: 0, index: 1)
-        let range1 = try graph.edgeRange(for: node1)
-        XCTAssertEqual(range1, 2..<3, "Node 1 has edge [2]")
-
-        let node3 = NodeID(layer: 1, index: 0)
-        let range3 = try graph.edgeRange(for: node3)
-        XCTAssertEqual(range3.count, 0, "Node 3 has no edges")
-    }
-
-    func testEdgeRangeInvalidNode() throws {
-        let graph = try makeSimpleGraph()
-
-        let invalidNode = NodeID(layer: 10, index: 0)
-        XCTAssertThrowsError(try graph.edgeRange(for: invalidNode)) { error in
-            guard case GraphError.invalidNodeID = error else {
-                XCTFail("Expected invalidNodeID error")
-                return
-            }
-        }
-    }
-
-    func testOutDegree() throws {
-        let graph = try makeSimpleGraph()
-
-        XCTAssertEqual(try graph.outDegree(of: NodeID(layer: 0, index: 0)), 2)
-        XCTAssertEqual(try graph.outDegree(of: NodeID(layer: 0, index: 1)), 1)
-        XCTAssertEqual(try graph.outDegree(of: NodeID(layer: 1, index: 0)), 0)
-    }
-
-    func testNeighbors() throws {
-        let graph = try makeSimpleGraph()
-
-        let neighbors0 = try graph.neighbors(of: NodeID(layer: 0, index: 0))
-        XCTAssertEqual(neighbors0.count, 2)
-        XCTAssertTrue(neighbors0.contains(NodeID(layer: 1, index: 0)))
-        XCTAssertTrue(neighbors0.contains(NodeID(layer: 1, index: 1)))
-
-        let neighbors1 = try graph.neighbors(of: NodeID(layer: 0, index: 1))
-        XCTAssertEqual(neighbors1.count, 1)
-        XCTAssertEqual(neighbors1[0], NodeID(layer: 1, index: 0))
-    }
-
-    // MARK: - Edge Lookup Tests
-
-    func testFindEdge() throws {
-        let graph = try makeSimpleGraph()
-
-        let src = NodeID(layer: 0, index: 0)
-        let dst1 = NodeID(layer: 1, index: 0)
-        let dst2 = NodeID(layer: 1, index: 1)
-
-        let edge1 = try graph.findEdge(from: src, to: dst1)
-        XCTAssertNotNil(edge1, "Should find edge 0→3")
-
-        let edge2 = try graph.findEdge(from: src, to: dst2)
-        XCTAssertNotNil(edge2, "Should find edge 0→4")
-
-        let nonExistent = try graph.findEdge(
-            from: NodeID(layer: 0, index: 1),
-            to: NodeID(layer: 1, index: 1)
-        )
-        XCTAssertNil(nonExistent, "Edge 1→4 doesn't exist")
-    }
-
-    func testEdgeWeight() throws {
-        let graph = try makeSimpleGraph()
-
-        let weight = try graph.edgeWeight(
-            from: NodeID(layer: 0, index: 0),
-            to: NodeID(layer: 1, index: 0)
-        )
-        XCTAssertEqual(weight, 1.0, accuracy: 1e-6)
-    }
-
-    func testEdgeWeightNotFound() throws {
-        let graph = try makeSimpleGraph()
-
-        XCTAssertThrowsError(try graph.edgeWeight(
-            from: NodeID(layer: 0, index: 1),
-            to: NodeID(layer: 1, index: 1)
-        )) { error in
-            guard case GraphError.edgeNotFound = error else {
-                XCTFail("Expected edgeNotFound error")
-                return
-            }
-        }
-    }
-
-    func testSetWeight() throws {
-        var graph = try makeSimpleGraph()
-
-        try graph.setWeight(
-            from: NodeID(layer: 0, index: 0),
-            to: NodeID(layer: 1, index: 0),
-            weight: 2.5
-        )
-
-        let newWeight = try graph.edgeWeight(
-            from: NodeID(layer: 0, index: 0),
-            to: NodeID(layer: 1, index: 0)
-        )
-        XCTAssertEqual(newWeight, 2.5, accuracy: 1e-6)
-    }
-
+    
     // MARK: - Statistics Tests
-
-    func testGraphStatistics() throws {
-        let graph = try makeSimpleGraph()
-
-        let stats = graph.statistics()
-
-        XCTAssertEqual(stats.numNodes, 6)
-        XCTAssertEqual(stats.numEdges, 4)
-        XCTAssertEqual(stats.minOutDegree, 0, "Nodes 3, 4, 5 have no outgoing edges")
-        XCTAssertEqual(stats.maxOutDegree, 2, "Node 0 has 2 edges")
-        XCTAssertGreaterThan(stats.avgOutDegree, 0)
-    }
-
-    func testEmptyGraphStatistics() throws {
-        let config = GraphConfig(layers: 1, nodesPerLayer: 2, localNeighbors: 0, jumpNeighbors: 0)
-
-        let rowPtr = [0, 0, 0]
-        let colIdx: [Int] = []
-        let weights: [Float] = []
-        let positions = [SIMD2<Float>(0, 0), SIMD2<Float>(0, 1)]
-
-        let graph = try Graph(
-            rowPtr: rowPtr,
-            colIdx: colIdx,
-            weights: weights,
-            config: config,
-            nodePositions: positions
-        )
-
-        let stats = graph.statistics()
-        XCTAssertEqual(stats.numEdges, 0)
-        XCTAssertEqual(stats.minOutDegree, 0)
-        XCTAssertEqual(stats.maxOutDegree, 0)
-        XCTAssertEqual(stats.avgOutDegree, 0.0, accuracy: 1e-6)
+    
+    func testStatistics() throws {
+        let grid = try TemporalGrid(layers: 10, nodesPerLayer: 1024)
+        let stats = grid.statistics()
+        
+        XCTAssertEqual(stats.layers, 10)
+        XCTAssertEqual(stats.nodesPerLayer, 1024)
+        XCTAssertEqual(stats.totalNodes, 10 * 1024)
+        XCTAssertTrue(stats.description.contains("10"))
+        XCTAssertTrue(stats.description.contains("1024"))
     }
 }

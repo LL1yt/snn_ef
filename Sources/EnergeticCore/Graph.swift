@@ -1,266 +1,140 @@
 import Foundation
 
-/// Graph representation using Compressed Sparse Row (CSR) format for efficient
-/// neighbor traversal and memory locality.
-///
-/// CSR format stores the graph as:
-/// - `rowPtr[i]..rowPtr[i+1]`: range of edges for node i
-/// - `colIdx[j]`: destination node index for edge j
-/// - `weights[j]`: weight for edge j
-///
-/// This format is cache-friendly and well-suited for forward/backward passes.
-public struct Graph: Sendable {
-
-    // MARK: - CSR Structure
-
-    /// Row pointers: rowPtr[nodeIdx] gives the start index in colIdx/weights
-    /// for edges originating from nodeIdx. Length: numNodes + 1
-    public let rowPtr: [Int]
-
-    /// Column indices: colIdx[edgeIdx] gives the destination node index
-    /// for edge edgeIdx. Length: numEdges
-    public let colIdx: [Int]
-
-    /// Edge weights: weights[edgeIdx] is the energy weight for edge edgeIdx.
-    /// Length: numEdges (mutable for learning)
-    public var weights: [Float]
-
-    // MARK: - Metadata
-
-    /// Configuration used to build this graph
-    public let config: GraphConfig
-
-    /// Total number of nodes
-    public let numNodes: Int
-
-    /// Total number of edges
-    public let numEdges: Int
-
-    /// Positional embeddings for each node (x, y) where:
-    /// - x = layer / (layers - 1) ∈ [0, 1]
-    /// - y = index / nodesPerLayer ∈ [0, 1]
-    public let nodePositions: [SIMD2<Float>]
-
+/// TemporalGrid represents the spatial layout of the SNN router.
+/// Energy packets move through layers (X axis) and nodes within layers (Y axis).
+/// This replaces the old CSR-based graph representation.
+public struct TemporalGrid: Sendable {
+    
+    // MARK: - Grid Structure
+    
+    /// Number of layers (X dimension)
+    public let layers: Int
+    
+    /// Number of nodes per layer (Y dimension)
+    public let nodesPerLayer: Int
+    
+    /// Total number of nodes in the grid
+    public let totalNodes: Int
+    
     // MARK: - Initialization
-
-    /// Initializes a graph with the given CSR structure and metadata.
+    
+    /// Creates a temporal grid with specified dimensions.
     ///
     /// - Parameters:
-    ///   - rowPtr: CSR row pointers (length: numNodes + 1)
-    ///   - colIdx: CSR column indices (length: numEdges)
-    ///   - weights: Edge weights (length: numEdges)
-    ///   - config: Graph configuration
-    ///   - nodePositions: Positional embeddings for nodes
-    ///
-    /// - Throws: `GraphError.invalidConfiguration` if dimensions are inconsistent
-    public init(
-        rowPtr: [Int],
-        colIdx: [Int],
-        weights: [Float],
-        config: GraphConfig,
-        nodePositions: [SIMD2<Float>]
-    ) throws {
-        // Validate dimensions
-        guard rowPtr.count == config.totalNodes + 1 else {
-            throw GraphError.invalidConfiguration(
-                "rowPtr length (\(rowPtr.count)) must be totalNodes + 1 (\(config.totalNodes + 1))"
-            )
+    ///   - layers: Number of layers, must be >= 1
+    ///   - nodesPerLayer: Number of nodes per layer, must be >= 1
+    /// - Throws: `RouterError.invalidConfiguration` if dimensions invalid
+    public init(layers: Int, nodesPerLayer: Int) throws {
+        guard layers >= 1 else {
+            throw RouterError.invalidConfiguration("layers must be >= 1, got \(layers)")
         }
-
-        guard colIdx.count == weights.count else {
-            throw GraphError.invalidConfiguration(
-                "colIdx length (\(colIdx.count)) must match weights length (\(weights.count))"
-            )
+        
+        guard nodesPerLayer >= 1 else {
+            throw RouterError.invalidConfiguration("nodesPerLayer must be >= 1, got \(nodesPerLayer)")
         }
-
-        guard nodePositions.count == config.totalNodes else {
-            throw GraphError.invalidConfiguration(
-                "nodePositions length (\(nodePositions.count)) must match totalNodes (\(config.totalNodes))"
-            )
-        }
-
-        // Validate rowPtr is monotonic
-        for i in 0..<rowPtr.count - 1 {
-            guard rowPtr[i] <= rowPtr[i + 1] else {
-                throw GraphError.invalidConfiguration(
-                    "rowPtr must be monotonically increasing at index \(i)"
-                )
-            }
-        }
-
-        // Validate rowPtr end matches edge count
-        guard rowPtr.last == colIdx.count else {
-            throw GraphError.invalidConfiguration(
-                "rowPtr last element (\(rowPtr.last ?? -1)) must equal edge count (\(colIdx.count))"
-            )
-        }
-
-        // Validate colIdx bounds
-        for (idx, col) in colIdx.enumerated() {
-            guard col >= 0 && col < config.totalNodes else {
-                throw GraphError.invalidConfiguration(
-                    "colIdx[\(idx)] = \(col) out of bounds [0, \(config.totalNodes))"
-                )
-            }
-        }
-
-        self.rowPtr = rowPtr
-        self.colIdx = colIdx
-        self.weights = weights
-        self.config = config
-        self.numNodes = config.totalNodes
-        self.numEdges = colIdx.count
-        self.nodePositions = nodePositions
+        
+        self.layers = layers
+        self.nodesPerLayer = nodesPerLayer
+        self.totalNodes = layers * nodesPerLayer
     }
-
-    // MARK: - Node Index Conversion
-
-    /// Converts a NodeID to a flat node index.
-    public func nodeIndex(_ node: NodeID) -> Int {
-        node.layer * config.nodesPerLayer + node.index
+    
+    // MARK: - Navigation
+    
+    /// Advances X coordinate by one layer (forward step).
+    /// Clamps to valid range [0, layers).
+    public func advanceForward(_ x: Int) -> Int {
+        min(x + 1, layers - 1)
     }
-
-    /// Converts a flat node index to a NodeID.
-    public func nodeID(from index: Int) -> NodeID {
-        let layer = index / config.nodesPerLayer
-        let idx = index % config.nodesPerLayer
-        return NodeID(layer: layer, index: idx)
+    
+    /// Wraps Y coordinate to valid range using modulo.
+    public func wrapY(_ y: Int) -> Int {
+        ((y % nodesPerLayer) + nodesPerLayer) % nodesPerLayer
     }
-
-    /// Validates a NodeID is within bounds.
-    public func isValid(_ node: NodeID) -> Bool {
-        return node.layer >= 0 && node.layer < config.layers &&
-               node.index >= 0 && node.index < config.nodesPerLayer
+    
+    /// Clamps X coordinate to valid range [0, layers).
+    public func clampX(_ x: Int) -> Int {
+        max(0, min(x, layers - 1))
     }
-
-    // MARK: - Edge Navigation
-
-    /// Returns the range of edge indices for a given node.
-    ///
-    /// - Parameter node: The source node
-    /// - Returns: Range of edge indices in colIdx/weights
-    /// - Throws: `GraphError.invalidNodeID` if node is out of bounds
-    public func edgeRange(for node: NodeID) throws -> Range<Int> {
-        guard isValid(node) else {
-            throw GraphError.invalidNodeID(node)
-        }
-
-        let idx = nodeIndex(node)
-        return rowPtr[idx]..<rowPtr[idx + 1]
+    
+    /// Checks if X coordinate is the output layer.
+    public func isOutputLayer(_ x: Int) -> Bool {
+        x >= layers - 1
     }
-
-    /// Returns the range of edge indices for a flat node index.
-    public func edgeRange(for nodeIdx: Int) throws -> Range<Int> {
-        guard nodeIdx >= 0 && nodeIdx < numNodes else {
-            throw GraphError.csrIndexOutOfBounds
-        }
-        return rowPtr[nodeIdx]..<rowPtr[nodeIdx + 1]
+    
+    /// Checks if X coordinate is within bounds.
+    public func isValidX(_ x: Int) -> Bool {
+        x >= 0 && x < layers
     }
-
-    /// Returns the number of outgoing edges from a node.
-    public func outDegree(of node: NodeID) throws -> Int {
-        let range = try edgeRange(for: node)
-        return range.count
+    
+    /// Checks if Y coordinate is within bounds.
+    public func isValidY(_ y: Int) -> Bool {
+        y >= 0 && y < nodesPerLayer
     }
-
-    /// Returns the destination node IDs for all edges from a source node.
-    public func neighbors(of node: NodeID) throws -> [NodeID] {
-        let range = try edgeRange(for: node)
-        return colIdx[range].map { nodeID(from: $0) }
+    
+    /// Validates packet coordinates.
+    public func isValid(x: Int, y: Int) -> Bool {
+        isValidX(x) && isValidY(y)
     }
-
-    /// Returns the destination node indices for all edges from a flat node index.
-    public func neighbors(of nodeIdx: Int) throws -> ArraySlice<Int> {
-        let range = try edgeRange(for: nodeIdx)
-        return colIdx[range]
+    
+    // MARK: - Flat Index Conversion
+    
+    /// Converts (x, y) coordinates to flat index.
+    public func flatIndex(x: Int, y: Int) -> Int {
+        x * nodesPerLayer + y
     }
-
-    // MARK: - Edge Lookup
-
-    /// Finds the edge index for a given (src, dst) pair.
-    ///
-    /// - Returns: Edge index in colIdx/weights, or nil if not found
-    public func findEdge(from src: NodeID, to dst: NodeID) throws -> Int? {
-        guard isValid(src), isValid(dst) else {
-            throw GraphError.invalidNodeID(isValid(src) ? dst : src)
-        }
-
-        let srcIdx = nodeIndex(src)
-        let dstIdx = nodeIndex(dst)
-        let range = rowPtr[srcIdx]..<rowPtr[srcIdx + 1]
-
-        for edgeIdx in range {
-            if colIdx[edgeIdx] == dstIdx {
-                return edgeIdx
-            }
-        }
-
-        return nil
+    
+    /// Converts flat index to (x, y) coordinates.
+    public func coordinates(from index: Int) -> (x: Int, y: Int) {
+        let x = index / nodesPerLayer
+        let y = index % nodesPerLayer
+        return (x, y)
     }
-
-    /// Gets the weight of an edge from src to dst.
-    ///
-    /// - Throws: `GraphError.edgeNotFound` if edge doesn't exist
-    public func edgeWeight(from src: NodeID, to dst: NodeID) throws -> Float {
-        guard let edgeIdx = try findEdge(from: src, to: dst) else {
-            throw GraphError.edgeNotFound(src: src, dst: dst)
-        }
-        return weights[edgeIdx]
+    
+    // MARK: - Normalization
+    
+    /// Normalizes X coordinate to [0, 1].
+    public func normalizeX(_ x: Int) -> Float {
+        guard layers > 1 else { return 0.0 }
+        return Float(x) / Float(layers - 1)
     }
-
-    /// Sets the weight of an edge from src to dst.
-    ///
-    /// - Throws: `GraphError.edgeNotFound` if edge doesn't exist
-    public mutating func setWeight(from src: NodeID, to dst: NodeID, weight: Float) throws {
-        guard let edgeIdx = try findEdge(from: src, to: dst) else {
-            throw GraphError.edgeNotFound(src: src, dst: dst)
-        }
-        weights[edgeIdx] = weight
+    
+    /// Normalizes Y coordinate to [0, 1].
+    public func normalizeY(_ y: Int) -> Float {
+        guard nodesPerLayer > 1 else { return 0.0 }
+        return Float(y) / Float(nodesPerLayer - 1)
     }
-
+    
+    /// Returns normalized position for a node.
+    public func normalizedPosition(x: Int, y: Int) -> SIMD2<Float> {
+        SIMD2(normalizeX(x), normalizeY(y))
+    }
+    
     // MARK: - Utilities
-
-    /// Returns statistics about the graph structure.
-    public func statistics() -> GraphStatistics {
-        var minDegree = Int.max
-        var maxDegree = 0
-        var totalDegree = 0
-
-        for i in 0..<numNodes {
-            let degree = rowPtr[i + 1] - rowPtr[i]
-            minDegree = min(minDegree, degree)
-            maxDegree = max(maxDegree, degree)
-            totalDegree += degree
-        }
-
-        let avgDegree = numNodes > 0 ? Float(totalDegree) / Float(numNodes) : 0.0
-
-        return GraphStatistics(
-            numNodes: numNodes,
-            numEdges: numEdges,
-            minOutDegree: minDegree == Int.max ? 0 : minDegree,
-            maxOutDegree: maxDegree,
-            avgOutDegree: avgDegree
+    
+    /// Returns grid statistics.
+    public func statistics() -> GridStatistics {
+        GridStatistics(
+            layers: layers,
+            nodesPerLayer: nodesPerLayer,
+            totalNodes: totalNodes
         )
     }
 }
 
-// MARK: - Graph Statistics
+// MARK: - Grid Statistics
 
-/// Statistics about graph structure.
-public struct GraphStatistics: CustomStringConvertible {
-    public let numNodes: Int
-    public let numEdges: Int
-    public let minOutDegree: Int
-    public let maxOutDegree: Int
-    public let avgOutDegree: Float
-
+/// Statistics about grid structure.
+public struct GridStatistics: CustomStringConvertible {
+    public let layers: Int
+    public let nodesPerLayer: Int
+    public let totalNodes: Int
+    
     public var description: String {
         """
-        Graph Statistics:
-          Nodes: \(numNodes)
-          Edges: \(numEdges)
-          Out-degree: min=\(minOutDegree), max=\(maxOutDegree), avg=\(String(format: "%.2f", avgOutDegree))
+        Grid Statistics:
+          Layers: \(layers)
+          Nodes per layer: \(nodesPerLayer)
+          Total nodes: \(totalNodes)
         """
     }
 }

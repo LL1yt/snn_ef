@@ -2,242 +2,257 @@ import XCTest
 @testable import EnergeticCore
 
 final class GraphTypesTests: XCTestCase {
+    
+    // MARK: - SNNConfig Tests
 
-    // MARK: - NodeID Tests
-
-    func testNodeIDEquality() {
-        let node1 = NodeID(layer: 2, index: 5)
-        let node2 = NodeID(layer: 2, index: 5)
-        let node3 = NodeID(layer: 2, index: 6)
-        let node4 = NodeID(layer: 3, index: 5)
-
-        XCTAssertEqual(node1, node2, "Same layer and index should be equal")
-        XCTAssertNotEqual(node1, node3, "Different index should not be equal")
-        XCTAssertNotEqual(node1, node4, "Different layer should not be equal")
-    }
-
-    func testNodeIDHashable() {
-        let node1 = NodeID(layer: 1, index: 10)
-        let node2 = NodeID(layer: 1, index: 10)
-        let node3 = NodeID(layer: 1, index: 11)
-
-        var set = Set<NodeID>()
-        set.insert(node1)
-        set.insert(node2)
-        set.insert(node3)
-
-        XCTAssertEqual(set.count, 2, "Should have 2 unique nodes")
-        XCTAssertTrue(set.contains(node1), "Should contain node1")
-        XCTAssertTrue(set.contains(node3), "Should contain node3")
-    }
-
-    func testNodeIDDescription() {
-        let node = NodeID(layer: 3, index: 42)
-        XCTAssertEqual(node.description, "Node(L3:42)")
-    }
-
-    // MARK: - Edge Tests
-
-    func testEdgeCreation() {
-        let src = NodeID(layer: 0, index: 5)
-        let dst = NodeID(layer: 1, index: 10)
-        let edge = Edge(src: src, dst: dst, weight: 0.5)
-
-        XCTAssertEqual(edge.src, src)
-        XCTAssertEqual(edge.dst, dst)
-        XCTAssertEqual(edge.weight, 0.5, accuracy: 1e-6)
-    }
-
-    func testEdgeDefaultWeight() {
-        let src = NodeID(layer: 0, index: 0)
-        let dst = NodeID(layer: 1, index: 0)
-        let edge = Edge(src: src, dst: dst)
-
-        XCTAssertEqual(edge.weight, 1.0, accuracy: 1e-6, "Default weight should be 1.0")
-    }
-
-    func testEdgeMutableWeight() {
-        let src = NodeID(layer: 0, index: 0)
-        let dst = NodeID(layer: 1, index: 0)
-        var edge = Edge(src: src, dst: dst, weight: 1.0)
-
-        edge.weight = 2.5
-        XCTAssertEqual(edge.weight, 2.5, accuracy: 1e-6)
-    }
-
-    func testEdgeDescription() {
-        let src = NodeID(layer: 0, index: 1)
-        let dst = NodeID(layer: 1, index: 2)
-        let edge = Edge(src: src, dst: dst, weight: 0.123)
-
-        let desc = edge.description
-        XCTAssertTrue(desc.contains("L0:1"), "Should contain source node")
-        XCTAssertTrue(desc.contains("L1:2"), "Should contain destination node")
-        XCTAssertTrue(desc.contains("0.123"), "Should contain weight")
-    }
-
-    // MARK: - LayerConfig Tests
-
-    func testLayerConfigCreation() {
-        let config = LayerConfig(
-            nodeCount: 128,
-            localNeighbors: 8,
-            jumpNeighbors: 2
+    
+    func testSNNConfigCreation() {
+        let config = SNNConfig(
+            parameterCount: 512,
+            decay: 0.92,
+            threshold: 0.8,
+            resetValue: 0.0,
+            deltaXRange: 1...4,
+            deltaYRange: -128...128,
+            surrogate: "fast_sigmoid",
+            dt: 1
         )
-
-        XCTAssertEqual(config.nodeCount, 128)
-        XCTAssertEqual(config.localNeighbors, 8)
-        XCTAssertEqual(config.jumpNeighbors, 2)
+        
+        XCTAssertEqual(config.parameterCount, 512)
+        XCTAssertEqual(config.decay, 0.92, accuracy: 1e-6)
+        XCTAssertEqual(config.threshold, 0.8, accuracy: 1e-6)
+        XCTAssertEqual(config.resetValue, 0.0, accuracy: 1e-6)
+        XCTAssertEqual(config.deltaXRange, 1...4)
+        XCTAssertEqual(config.deltaYRange, -128...128)
+        XCTAssertEqual(config.surrogate, "fast_sigmoid")
+        XCTAssertEqual(config.dt, 1)
     }
-
-    func testLayerConfigEquality() {
-        let config1 = LayerConfig(nodeCount: 100, localNeighbors: 4, jumpNeighbors: 1)
-        let config2 = LayerConfig(nodeCount: 100, localNeighbors: 4, jumpNeighbors: 1)
-        let config3 = LayerConfig(nodeCount: 100, localNeighbors: 4, jumpNeighbors: 2)
-
+    
+    func testSNNConfigEquality() {
+        let config1 = SNNConfig(
+            parameterCount: 256,
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...3,
+            deltaYRange: -10...10,
+            surrogate: "fast_sigmoid",
+            dt: 1
+        )
+        
+        let config2 = SNNConfig(
+            parameterCount: 256,
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...3,
+            deltaYRange: -10...10,
+            surrogate: "fast_sigmoid",
+            dt: 1
+        )
+        
+        let config3 = SNNConfig(
+            parameterCount: 512,  // Different
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...3,
+            deltaYRange: -10...10,
+            surrogate: "fast_sigmoid",
+            dt: 1
+        )
+        
         XCTAssertEqual(config1, config2)
         XCTAssertNotEqual(config1, config3)
     }
-
-    // MARK: - GraphConfig Tests
-
-    func testGraphConfigCreation() {
-        let config = GraphConfig(
+    
+    // MARK: - RouterConfig Tests
+    
+    func testRouterConfigCreation() {
+        let snn = SNNConfig(
+            parameterCount: 128,
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...2,
+            deltaYRange: -5...5,
+            surrogate: "tanh_clip",
+            dt: 1
+        )
+        
+        let config = RouterConfig(
             layers: 10,
             nodesPerLayer: 1024,
-            localNeighbors: 8,
-            jumpNeighbors: 2
+            snn: snn,
+            alpha: 0.9,
+            energyFloor: 1e-5,
+            energyBase: 256
         )
-
+        
         XCTAssertEqual(config.layers, 10)
         XCTAssertEqual(config.nodesPerLayer, 1024)
-        XCTAssertEqual(config.localNeighbors, 8)
-        XCTAssertEqual(config.jumpNeighbors, 2)
+        XCTAssertEqual(config.snn, snn)
+        XCTAssertEqual(config.alpha, 0.9, accuracy: 1e-6)
+        XCTAssertEqual(config.energyFloor, 1e-5, accuracy: 1e-9)
+        XCTAssertEqual(config.energyBase, 256)
+    }
+    
+    func testRouterConfigTotalNodes() {
+        let config = RouterFactory.createTestConfig()
+        XCTAssertEqual(config.totalNodes, 5 * 64)
     }
 
-    func testGraphConfigTotalNodes() {
-        let config = GraphConfig(
-            layers: 5,
-            nodesPerLayer: 100,
-            localNeighbors: 4,
-            jumpNeighbors: 1
+    // MARK: - EnergyPacket Tests
+    
+    func testEnergyPacketCreation() {
+        let packet = EnergyPacket(
+            streamID: 42,
+            x: 3,
+            y: 100,
+            energy: 1.5,
+            time: 10
         )
-
-        XCTAssertEqual(config.totalNodes, 500, "5 layers × 100 nodes = 500")
+        
+        XCTAssertEqual(packet.streamID, 42)
+        XCTAssertEqual(packet.x, 3)
+        XCTAssertEqual(packet.y, 100)
+        XCTAssertEqual(packet.energy, 1.5, accuracy: 1e-6)
+        XCTAssertEqual(packet.time, 10)
     }
-
-    func testGraphConfigEstimatedEdges() {
-        // Simple case: 3 layers, 4 nodes per layer, 2 local, 1 jump
-        let config = GraphConfig(
-            layers: 3,
-            nodesPerLayer: 4,
-            localNeighbors: 2,
-            jumpNeighbors: 1
+    
+    func testEnergyPacketNormalization() {
+        let packet = EnergyPacket(
+            streamID: 1,
+            x: 5,
+            y: 50,
+            energy: 100.0,
+            time: 20
         )
-
-        // Layer 0 → Layer 1: 4 nodes × 2 local = 8 edges
-        // Layer 1 → Layer 2: 4 nodes × 2 local = 8 edges (no jump, last layer)
-        // Layer 2: no outgoing edges
-        // Total: 8 + 8 = 16 edges (estimated, actual might vary)
-
-        let estimated = config.estimatedEdges
-        XCTAssertGreaterThan(estimated, 0, "Should have positive edge count")
-        XCTAssertLessThanOrEqual(
-            estimated,
-            config.totalNodes * (config.localNeighbors + config.jumpNeighbors),
-            "Should not exceed max possible edges"
+        
+        let normalized = packet.asNormalizedInput(
+            maxLayers: 10,
+            maxNodesPerLayer: 100,
+            maxEnergy: 200.0,
+            maxTime: 40
         )
+        
+        // x_norm = 5 / 9 ≈ 0.556
+        XCTAssertEqual(normalized.x, 5.0 / 9.0, accuracy: 1e-3)
+        // y_norm = 50 / 99 ≈ 0.505
+        XCTAssertEqual(normalized.y, 50.0 / 99.0, accuracy: 1e-3)
+        // energy_norm = 100 / 200 = 0.5
+        XCTAssertEqual(normalized.z, 0.5, accuracy: 1e-6)
+        // time_norm = 20 / 40 = 0.5
+        XCTAssertEqual(normalized.w, 0.5, accuracy: 1e-6)
+    }
+    
+    func testEnergyPacketIsAlive() {
+        let alive = EnergyPacket(streamID: 1, x: 0, y: 0, energy: 1.0, time: 0)
+        let dead = EnergyPacket(streamID: 2, x: 0, y: 0, energy: 0.001, time: 0)
+        
+        XCTAssertTrue(alive.isAlive(minEnergy: 0.1))
+        XCTAssertFalse(dead.isAlive(minEnergy: 0.1))
+    }
+    
+    func testEnergyPacketEquality() {
+        let packet1 = EnergyPacket(streamID: 1, x: 2, y: 3, energy: 1.0, time: 5)
+        let packet2 = EnergyPacket(streamID: 1, x: 2, y: 3, energy: 1.0, time: 5)
+        let packet3 = EnergyPacket(streamID: 2, x: 2, y: 3, energy: 1.0, time: 5)
+        
+        XCTAssertEqual(packet1, packet2)
+        XCTAssertNotEqual(packet1, packet3)
     }
 
-    func testGraphConfigEstimatedEdgesLargeGraph() {
-        // Baseline config: 10 layers, 1024 nodes
-        let config = GraphConfig(
-            layers: 10,
-            nodesPerLayer: 1024,
-            localNeighbors: 8,
-            jumpNeighbors: 2
+    // MARK: - SpikingOutput Tests
+    
+    func testSpikingOutputCreation() {
+        let output = SpikingOutput(
+            energyNext: 0.8,
+            deltaXY: SIMD2(2.5, -10.3),
+            spike: true
         )
-
-        let estimated = config.estimatedEdges
-        XCTAssertGreaterThan(estimated, 0)
-
-        // Middle layers (layers 0..7): 8 layers × 1024 nodes × (8+2) edges = 81,920
-        // Layer 8 (second-to-last): 1024 nodes × 8 local = 8,192
-        // Layer 9: no outgoing
-        // But layer 0 already counted in middle, so adjust...
-        // Actually the formula in code handles this differently, just check bounds
-
-        let maxPossible = config.totalNodes * (config.localNeighbors + config.jumpNeighbors)
-        XCTAssertLessThanOrEqual(estimated, maxPossible)
+        
+        XCTAssertEqual(output.energyNext, 0.8, accuracy: 1e-6)
+        XCTAssertEqual(output.deltaXY.x, 2.5, accuracy: 1e-6)
+        XCTAssertEqual(output.deltaXY.y, -10.3, accuracy: 1e-6)
+        XCTAssertTrue(output.spike)
+    }
+    
+    func testSpikingOutputNoSpike() {
+        let output = SpikingOutput(
+            energyNext: 0.5,
+            deltaXY: SIMD2(0.0, 0.0),
+            spike: false
+        )
+        
+        XCTAssertFalse(output.spike)
     }
 
-    func testGraphConfigEquality() {
-        let config1 = GraphConfig(layers: 5, nodesPerLayer: 64, localNeighbors: 4, jumpNeighbors: 1)
-        let config2 = GraphConfig(layers: 5, nodesPerLayer: 64, localNeighbors: 4, jumpNeighbors: 1)
-        let config3 = GraphConfig(layers: 6, nodesPerLayer: 64, localNeighbors: 4, jumpNeighbors: 1)
-
-        XCTAssertEqual(config1, config2)
-        XCTAssertNotEqual(config1, config3)
-    }
-
-    // MARK: - GraphError Tests
-
-    func testGraphErrorDescriptions() {
-        let node = NodeID(layer: 10, index: 50)
-        let src = NodeID(layer: 0, index: 0)
-        let dst = NodeID(layer: 1, index: 1)
-
-        let error1 = GraphError.invalidNodeID(node)
-        XCTAssertTrue(error1.description.contains("Invalid node ID"))
-
-        let error2 = GraphError.invalidLayerIndex(99)
-        XCTAssertTrue(error2.description.contains("Invalid layer index"))
-
-        let error3 = GraphError.invalidConfiguration("test reason")
-        XCTAssertTrue(error3.description.contains("test reason"))
-
-        let error4 = GraphError.edgeNotFound(src: src, dst: dst)
-        XCTAssertTrue(error4.description.contains("Edge not found"))
-
-        let error5 = GraphError.csrIndexOutOfBounds
-        XCTAssertTrue(error5.description.contains("CSR index"))
+    // MARK: - RouterError Tests
+    
+    func testRouterErrorDescriptions() {
+        let packet = EnergyPacket(streamID: 5, x: 100, y: 200, energy: 1.0, time: 0)
+        
+        let error1 = RouterError.invalidConfiguration("test reason")
+        XCTAssertTrue(error1.description.contains("test reason"))
+        
+        let error2 = RouterError.packetOutOfBounds(packet)
+        XCTAssertTrue(error2.description.contains("streamID=5"))
+        XCTAssertTrue(error2.description.contains("x=100"))
+        
+        let error3 = RouterError.negativeEnergy(streamID: 10, energy: -0.5)
+        XCTAssertTrue(error3.description.contains("stream 10"))
+        XCTAssertTrue(error3.description.contains("-0.5"))
+        
+        let error4 = RouterError.membraneNaN(streamID: 7)
+        XCTAssertTrue(error4.description.contains("stream 7"))
+        XCTAssertTrue(error4.description.contains("NaN"))
+        
+        let error5 = RouterError.invalidSurrogate("unknown_func")
+        XCTAssertTrue(error5.description.contains("unknown_func"))
     }
 
     // MARK: - Edge Cases
-
-    func testSingleLayerGraph() {
-        let config = GraphConfig(
+    
+    func testSingleLayerConfig() {
+        let snn = SNNConfig(
+            parameterCount: 64,
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...1,
+            deltaYRange: 0...0,
+            surrogate: "fast_sigmoid",
+            dt: 1
+        )
+        
+        let config = RouterConfig(
             layers: 1,
             nodesPerLayer: 10,
-            localNeighbors: 0,
-            jumpNeighbors: 0
+            snn: snn,
+            alpha: 1.0,
+            energyFloor: 0.0,
+            energyBase: 256
         )
-
+        
         XCTAssertEqual(config.totalNodes, 10)
-        XCTAssertEqual(config.estimatedEdges, 0, "Single layer has no outgoing edges")
     }
-
-    func testTwoLayerGraph() {
-        let config = GraphConfig(
-            layers: 2,
-            nodesPerLayer: 5,
-            localNeighbors: 3,
-            jumpNeighbors: 0  // No jump possible with only 2 layers
-        )
-
-        XCTAssertEqual(config.totalNodes, 10)
-        XCTAssertGreaterThan(config.estimatedEdges, 0)
+    
+    func testZeroEnergyPacket() {
+        let packet = EnergyPacket(streamID: 1, x: 0, y: 0, energy: 0.0, time: 0)
+        XCTAssertFalse(packet.isAlive(minEnergy: 1e-5))
     }
-
-    func testZeroNodesPerLayer() {
-        let config = GraphConfig(
-            layers: 5,
-            nodesPerLayer: 0,
-            localNeighbors: 8,
-            jumpNeighbors: 2
+    
+    func testNegativeTimeNormalization() {
+        // Edge case: time = 0, maxTime = 1
+        let packet = EnergyPacket(streamID: 1, x: 0, y: 0, energy: 1.0, time: 0)
+        let normalized = packet.asNormalizedInput(
+            maxLayers: 10,
+            maxNodesPerLayer: 10,
+            maxEnergy: 1.0,
+            maxTime: 1
         )
-
-        XCTAssertEqual(config.totalNodes, 0)
-        XCTAssertEqual(config.estimatedEdges, 0)
+        
+        XCTAssertEqual(normalized.w, 0.0, accuracy: 1e-6)
     }
 }
