@@ -22,11 +22,11 @@ struct EnergeticCLI {
         LoggingHub.emit(
             process: "cli.main",
             level: .info,
-            message: "Router config loaded from \(snapshot.sourceURL.path) · layers=\(routerConfig.layers), nodes_per_layer=\(routerConfig.nodesPerLayer)"
+            message: "Router config loaded from \(snapshot.sourceURL.path) · layers=\(routerConfig.layers), nodes_per_layer=\(routerConfig.nodesPerLayer), params=\(routerConfig.snn.parameterCount), surrogate=\(routerConfig.snn.surrogate)"
         )
 
         let router = EnergeticRouterPlaceholder()
-        LoggingHub.emit(process: "router.forward", level: .info, message: router.describe())
+        LoggingHub.emit(process: "router.step", level: .info, message: router.describe())
 
         if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
             LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")

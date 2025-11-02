@@ -41,21 +41,23 @@ final class DiagnosticsTests: XCTestCase {
         let router = ConfigRoot.Router(
             layers: 1,
             nodesPerLayer: 4,
-            prototypes: .init(count: 2, hiddenDim: 4),
-            neighbors: .init(local: 2, jump: 1),
+            snn: .init(
+                parameterCount: 128,
+                decay: 0.9,
+                threshold: 0.8,
+                resetValue: 0.0,
+                deltaXRange: .init(min: 1, max: 1),
+                deltaYRange: .init(min: -2, max: 2),
+                surrogate: "fast_sigmoid",
+                dt: 1
+            ),
             alpha: 0.9,
-            tau: 1.0,
-            topK: 2,
-            energyConstraints: .init(maxDX: 10, minDX: 1, maxDY: 10, energyBase: alphabet.count),
-            optimizer: .init(type: "adam", lr: 1e-3, beta1: 0.9, beta2: 0.999, eps: 1e-8),
-            entropyReg: 0.01,
-            batchSize: 4,
-            epochs: 1,
-            backend: "cpu",
-            task: "test",
-            headless: true,
-            checkpoints: .init(everySteps: 10, keep: 1),
-            localLearning: .init(enabled: false, rho: 0.9, lr: 0.0, baselineBeta: 0.95)
+            energyFloor: 1.0e-5,
+            energyConstraints: .init(energyBase: alphabet.count),
+            training: .init(
+                optimizer: .init(type: "adam", lr: 1e-3, beta1: 0.9, beta2: 0.999, eps: 1e-8),
+                losses: .init(energyBalanceWeight: 1.0, jumpPenaltyWeight: 1.0e-2, spikeRateTarget: 0.1)
+            )
         )
         let ui = ConfigRoot.UI(
             enabled: false,

@@ -99,7 +99,9 @@ final class CLIntegrationTests: XCTestCase {
           timestamp_kind: "relative"
         process_registry:
           capsule.encode: "capsule.encode"
-          router.forward: "router.forward"
+          router.step: "router.step"
+          router.spike: "router.spike"
+          router.output: "router.output"
           cli.main: "cli.main"
         paths:
           logs_dir: "\(logsDir)"
@@ -122,40 +124,30 @@ final class CLIntegrationTests: XCTestCase {
         router:
           layers: 4
           nodes_per_layer: 64
-          prototypes:
-            count: 8
-            hidden_dim: 8
-          neighbors:
-            local: 8
-            jump: 2
+          snn:
+            parameter_count: 512
+            decay: 0.9
+            threshold: 0.7
+            reset_value: 0.0
+            delta_x_range: [1, 3]
+            delta_y_range: [-32, 32]
+            surrogate: "fast_sigmoid"
+            dt: 1
           alpha: 0.9
-          tau: 2.0
-          top_k: 4
+          energy_floor: 1.0e-5
           energy_constraints:
-            max_dx: 10
-            min_dx: 1
-            max_dy: 32
-            energy_base: 256
-          optimizer:
-            type: "adam"
-            lr: 1.0e-3
-            beta1: 0.9
-            beta2: 0.999
-            eps: 1.0e-8
-          entropy_reg: 0.01
-          batch_size: 32
-          epochs: 1
-          backend: "cpu"
-          task: "integration"
-          headless: false
-          checkpoints:
-            every_steps: 100
-            keep: 2
-          local_learning:
-            enabled: false
-            rho: 0.9
-            lr: 0.0
-            baseline_beta: 0.95
+            energy_base: 100
+          training:
+            optimizer:
+              type: "adam"
+              lr: 1.0e-3
+              beta1: 0.9
+              beta2: 0.999
+              eps: 1.0e-8
+            losses:
+              energy_balance_weight: 1.0
+              jump_penalty_weight: 1.0e-2
+              spike_rate_target: 0.1
         ui:
           enabled: true
           refresh_hz: 30

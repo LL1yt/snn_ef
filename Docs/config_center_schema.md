@@ -34,8 +34,8 @@ logging:
       path: "Logs/run.log"
   levels_override:
     capsule.encode: "debug"
-    router.forward: "debug"
-    router.local_hebb: "trace"
+    router.step: "debug"
+    router.spike: "trace"
     ui.pipeline: "info"
   timestamp_kind: "relative" # relative|absolute (по умолчанию relative)
 ```
@@ -56,10 +56,9 @@ process_registry:
   capsule.base_b: "capsule.base_b"
   capsule.to_energies: "capsule.to_energies"
   capsule.from_energies: "capsule.from_energies"
-  router.forward: "router.forward"
-  router.backward: "router.backward"
-  router.local_hebb: "router.local_hebb"
-  router.checkpoint: "router.checkpoint"
+  router.step: "router.step"
+  router.spike: "router.spike"
+  router.output: "router.output"
   trainer.loop: "trainer.loop"
   trainer.eval: "trainer.eval"
   ui.pipeline: "ui.pipeline"
@@ -119,46 +118,41 @@ Constraints:
 router:
   layers: 10
   nodes_per_layer: 1024
-  prototypes:
-    count: 64
-    hidden_dim: 8
-  neighbors:
-    local: 8
-    jump: 2
-  alpha: 0.9
-  tau: 3.0
-  top_k: 4
+  snn:
+    parameter_count: 512         # общее число обучаемых параметров
+    decay: 0.92                  # 0 < decay < 1
+    threshold: 0.8               # 0 < threshold ≤ 1
+    reset_value: 0.0
+    delta_x_range: [1, 4]        # min ≥ 1, max ≥ min
+    delta_y_range: [-128, 128]   # диапазон на оси Y, обязан содержать 0
+    surrogate: "fast_sigmoid"    # имя surrogate-функции
+    dt: 1                        # шаг по времени, ≥ 1
+  alpha: 0.9                     # коэффициент затухания энергии, 0 < α ≤ 1
+  energy_floor: 1.0e-5           # порог отсечения маленьких потоков, ≥ 0
   energy_constraints:
-    max_dx: 10
-    min_dx: 1
-    max_dy: 64
-    energy_base: 256 # должно совпадать с capsule.base
-  optimizer:
-    type: "adam"
-    lr: 1.0e-3
-    beta1: 0.9
-    beta2: 0.999
-    eps: 1.0e-8
-  entropy_reg: 0.01
-  batch_size: 32
-  epochs: 5
-  backend: "cpu" # cpu|gpu
-  task: "addition" # доменная задача
-  headless: false
-  checkpoints:
-    every_steps: 100
-    keep: 5
-  local_learning:
-    enabled: false
-    rho: 0.9
-    lr: 1.0e-4
-    baseline_beta: 0.95
+    energy_base: 100             # должно совпадать с capsule.base
+  training:
+    optimizer:
+      type: "adam"
+      lr: 1.0e-3
+      beta1: 0.9
+      beta2: 0.999
+      eps: 1.0e-8
+    losses:
+      energy_balance_weight: 1.0
+      jump_penalty_weight: 1.0e-2
+      spike_rate_target: 0.1
 ```
 
 Constraints:
 
-- `energy_constraints.energy_base` = `capsule.base` (валидация).
-- Если `local_learning.enabled = true`, ConfigCenter требует `process_registry.router.local_hebb`.
+- `layers ≥ 1`, `nodes_per_layer ≥ 1`.
+- `snn.parameter_count ≥ 1`.
+- `0 < snn.decay < 1`, `0 < snn.threshold ≤ 1`.
+- `snn.delta_x_range.min ≥ 1`, `delta_x_range.max ≥ min`.
+- `snn.delta_y_range.min ≤ 0 ≤ max`.
+- `alpha` в диапазоне `(0, 1]`, `energy_floor ≥ 0`.
+- `energy_constraints.energy_base` = `capsule.base`.
 
 ---
 
@@ -196,7 +190,7 @@ logging:
       path: "Logs/baseline.log"
   levels_override:
     capsule.encode: "debug"
-    router.local_hebb: "trace"
+    router.spike: "trace"
     ui.pipeline: "info"
   timestamp_kind: "relative"
 
@@ -205,10 +199,9 @@ process_registry:
   capsule.base_b: "capsule.base_b"
   capsule.to_energies: "capsule.to_energies"
   capsule.from_energies: "capsule.from_energies"
-  router.forward: "router.forward"
-  router.backward: "router.backward"
-  router.local_hebb: "router.local_hebb"
-  router.checkpoint: "router.checkpoint"
+  router.step: "router.step"
+  router.spike: "router.spike"
+  router.output: "router.output"
   trainer.loop: "trainer.loop"
   trainer.eval: "trainer.eval"
   ui.pipeline: "ui.pipeline"
@@ -238,40 +231,30 @@ capsule:
 router:
   layers: 10
   nodes_per_layer: 1024
-  prototypes:
-    count: 64
-    hidden_dim: 8
-  neighbors:
-    local: 8
-    jump: 2
+  snn:
+    parameter_count: 512
+    decay: 0.92
+    threshold: 0.8
+    reset_value: 0.0
+    delta_x_range: [1, 4]
+    delta_y_range: [-128, 128]
+    surrogate: "fast_sigmoid"
+    dt: 1
   alpha: 0.9
-  tau: 3.0
-  top_k: 4
+  energy_floor: 1.0e-5
   energy_constraints:
-    max_dx: 10
-    min_dx: 1
-    max_dy: 64
-    energy_base: 256
-  optimizer:
-    type: "adam"
-    lr: 1.0e-3
-    beta1: 0.9
-    beta2: 0.999
-    eps: 1.0e-8
-  entropy_reg: 0.01
-  batch_size: 32
-  epochs: 5
-  backend: "cpu"
-  task: "addition"
-  headless: false
-  checkpoints:
-    every_steps: 100
-    keep: 5
-  local_learning:
-    enabled: false
-    rho: 0.9
-    lr: 1.0e-4
-    baseline_beta: 0.95
+    energy_base: 100
+  training:
+    optimizer:
+      type: "adam"
+      lr: 1.0e-3
+      beta1: 0.9
+      beta2: 0.999
+      eps: 1.0e-8
+    losses:
+      energy_balance_weight: 1.0
+      jump_penalty_weight: 1.0e-2
+      spike_rate_target: 0.1
 
 ui:
   enabled: true
@@ -287,7 +270,7 @@ ui:
 
 ## 9. Правила валидации (коротко)
 
-- Все числовые параметры ≥0; ConfigCenter проверяет диапазоны (`max_dx ≥ min_dx ≥ 1`, `layers ≥ 1`, `nodes_per_layer ≥ 1` и т.п.).
+- Числовые параметры валидируются: `layers ≥ 1`, `nodes_per_layer ≥ 1`, `snn.parameter_count ≥ 1`, `0 < snn.decay < 1`, `0 < snn.threshold ≤ 1`, `delta_x_range.min ≥ 1`, `delta_y_range` содержит `0`, `alpha ∈ (0,1]`, `energy_floor ≥ 0`.
 - Строковые перечисления проверяются на допустимые значения.
 - Логи: override может ссылаться лишь на существующий `process_id`; для файловых назначений путь обязателен.
 - Совместимость модулей: `capsule.base == router.energy_constraints.energy_base`.

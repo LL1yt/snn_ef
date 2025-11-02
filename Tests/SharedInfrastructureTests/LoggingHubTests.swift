@@ -53,14 +53,14 @@ final class LoggingHubTests: XCTestCase {
         try LoggingHub.configure(from: snapshot, fileManager: fileManager)
 
         LoggingHub.emit(process: "capsule.encode", level: .debug, message: "allowed-debug")
-        LoggingHub.emit(process: "router.forward", level: .debug, message: "filtered-debug")
+        LoggingHub.emit(process: "router.step", level: .debug, message: "filtered-debug")
         LoggingHub.waitForDrain()
 
         let contents = try String(contentsOf: logFileURL)
         XCTAssertTrue(contents.contains("allowed-debug"))
         XCTAssertFalse(contents.contains("filtered-debug"))
         XCTAssertNotNil(LoggingHub.lastEventTimestamp(for: "capsule.encode"))
-        XCTAssertNil(LoggingHub.lastEventTimestamp(for: "router.forward"))
+        XCTAssertNil(LoggingHub.lastEventTimestamp(for: "router.step"))
     }
 
     func testLastEventTimestampRecordsLatest() throws {
@@ -138,21 +138,23 @@ final class LoggingHubTests: XCTestCase {
         let router = ConfigRoot.Router(
             layers: 2,
             nodesPerLayer: 4,
-            prototypes: .init(count: 2, hiddenDim: 4),
-            neighbors: .init(local: 2, jump: 1),
+            snn: .init(
+                parameterCount: 256,
+                decay: 0.9,
+                threshold: 0.8,
+                resetValue: 0.0,
+                deltaXRange: .init(min: 1, max: 2),
+                deltaYRange: .init(min: -2, max: 2),
+                surrogate: "fast_sigmoid",
+                dt: 1
+            ),
             alpha: 0.9,
-            tau: 1.0,
-            topK: 2,
-            energyConstraints: .init(maxDX: 10, minDX: 1, maxDY: 10, energyBase: alphabet.count),
-            optimizer: .init(type: "adam", lr: 1e-3, beta1: 0.9, beta2: 0.999, eps: 1e-8),
-            entropyReg: 0.01,
-            batchSize: 8,
-            epochs: 1,
-            backend: "cpu",
-            task: "test",
-            headless: true,
-            checkpoints: .init(everySteps: 10, keep: 2),
-            localLearning: .init(enabled: false, rho: 0.9, lr: 0.0, baselineBeta: 0.95)
+            energyFloor: 1.0e-5,
+            energyConstraints: .init(energyBase: alphabet.count),
+            training: .init(
+                optimizer: .init(type: "adam", lr: 1e-3, beta1: 0.9, beta2: 0.999, eps: 1e-8),
+                losses: .init(energyBalanceWeight: 1.0, jumpPenaltyWeight: 1.0e-2, spikeRateTarget: 0.1)
+            )
         )
 
         let ui = ConfigRoot.UI(
@@ -172,7 +174,7 @@ final class LoggingHubTests: XCTestCase {
             logging: logging,
             processRegistry: [
                 "capsule.encode": "capsule.encode",
-                "router.forward": "router.forward"
+                "router.step": "router.step"
             ],
             paths: paths,
             capsule: capsule,
