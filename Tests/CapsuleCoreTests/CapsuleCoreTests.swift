@@ -6,6 +6,16 @@ import Foundation
 final class CapsuleCoreTests: XCTestCase {
     private var testConfigURL: URL!
     private var snapshot: ConfigSnapshot!
+    private static let alphabet: String = {
+        var scalars: [UnicodeScalar] = []
+        scalars.reserveCapacity(256)
+        for codePoint in 0x0100...0x01FF {
+            if let scalar = UnicodeScalar(codePoint) {
+                scalars.append(scalar)
+            }
+        }
+        return String(String.UnicodeScalarView(scalars))
+    }()
 
     override func setUp() {
         super.setUp()
@@ -84,7 +94,7 @@ final class CapsuleCoreTests: XCTestCase {
     func testByteDigitsRoundTripDifferentBases() throws {
         // Test that converting a block to base-B digits and back recovers original bytes
         let bytes = (0..<64).map { _ in UInt8.random(in: 0...255) }
-        for base in [64, 85, 100] {
+        for base in [64, 128, 256] {
             let digits = ByteDigitsConverter.toDigits(bytes: bytes, baseB: base)
             let recovered = ByteDigitsConverter.toBytes(digitsMSDFirst: digits, baseB: base, byteCount: bytes.count)
             XCTAssertEqual(recovered, bytes, "Round-trip failed for base=\(base)")
@@ -124,6 +134,7 @@ final class CapsuleCoreTests: XCTestCase {
     }
 
     private func makeTemporaryConfig() throws -> URL {
+        let alphabet = CapsuleCoreTests.alphabet
         let config = """
         version: 1
         profile: "baseline"
@@ -148,8 +159,8 @@ final class CapsuleCoreTests: XCTestCase {
           enabled: true
           max_input_bytes: 256
           block_size: 320
-          base: 100
-          alphabet: "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.;:()[]{}<>!?@#$%^&*+=~|/,αβγδεζηθικ"
+          base: 256
+          alphabet: "\(alphabet)"
           prp: "feistel"
           feistel_rounds: 10
           key_hex: "00"
@@ -173,7 +184,7 @@ final class CapsuleCoreTests: XCTestCase {
             max_dx: 10
             min_dx: 1
             max_dy: 64
-            energy_base: 100
+            energy_base: 256
           optimizer:
             type: "adam"
             lr: 1.0e-3

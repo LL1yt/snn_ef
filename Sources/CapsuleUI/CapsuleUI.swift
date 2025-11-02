@@ -5,7 +5,7 @@ import SharedInfrastructure
 public struct CapsuleUIPreview: View {
     private let snapshot: ConfigSnapshot?
     @State private var exportStatus: String = ""
-    @State private var loadedSnapshot: PipelineSnapshot?
+    @State private var loadedSnapshot: ConfigPipelineSnapshot?
 
     public init(snapshot: ConfigSnapshot? = try? ConfigCenter.load()) {
         self.snapshot = snapshot
@@ -64,7 +64,7 @@ public struct CapsuleUIPreview: View {
 
     private func export(_ snapshot: ConfigSnapshot) {
         do {
-            let exported = try PipelineSnapshotExporter.export(snapshot: snapshot)
+            let exported: ConfigPipelineSnapshot = try PipelineSnapshotExporter.export(snapshot: snapshot)
             loadedSnapshot = exported
             exportStatus = "Snapshot exported at \(format(date: exported.generatedAt))"
         } catch {

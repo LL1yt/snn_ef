@@ -28,7 +28,7 @@ struct EnergeticCLI {
         let router = EnergeticRouterPlaceholder()
         LoggingHub.emit(process: "router.forward", level: .info, message: router.describe())
 
-        if let exported = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+        if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
             LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")
         }
 

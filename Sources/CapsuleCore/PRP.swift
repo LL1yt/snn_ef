@@ -2,9 +2,9 @@ import Foundation
 import CryptoKit
 import SharedInfrastructure
 
-enum PRP {
+public enum PRP {
     // Applies Feistel network over the payload (bytes after header), leaving header intact.
-    static func apply(inoutBytes bytes: inout [UInt8], config: ConfigRoot.Capsule) {
+    public static func apply(inoutBytes bytes: inout [UInt8], config: ConfigRoot.Capsule) {
         let start = CapsuleHeader.byteCount
         guard bytes.count > start else { return }
         let key = deriveKey(fromHex: config.keyHex)
@@ -32,7 +32,7 @@ enum PRP {
     }
 
     // Inverse Feistel over the payload; header remains intact.
-    static func inverse(inoutBytes bytes: inout [UInt8], config: ConfigRoot.Capsule) {
+    public static func inverse(inoutBytes bytes: inout [UInt8], config: ConfigRoot.Capsule) {
         let start = CapsuleHeader.byteCount
         guard bytes.count > start else { return }
         let key = deriveKey(fromHex: config.keyHex)
@@ -78,9 +78,9 @@ enum PRP {
         while output.count < targetLen {
             var ctx = Data()
             ctx.append(contentsOf: input)
-            var rBE = withUnsafeBytes(of: UInt32(round).bigEndian, Array.init)
+            let rBE = withUnsafeBytes(of: UInt32(round).bigEndian, Array.init)
             ctx.append(contentsOf: rBE)
-            var cBE = withUnsafeBytes(of: counter.bigEndian, Array.init)
+            let cBE = withUnsafeBytes(of: counter.bigEndian, Array.init)
             ctx.append(contentsOf: cBE)
 
             let mac = HMAC<SHA256>.authenticationCode(for: ctx, using: SymmetricKey(data: key))
