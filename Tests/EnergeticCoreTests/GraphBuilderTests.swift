@@ -414,8 +414,9 @@ final class GraphBuilderTests: XCTestCase {
         // Should connect to all available nodes without error
         XCTAssertGreaterThan(graph.numEdges, 0)
 
-        // Out-degree should not exceed nodesPerLayer
+        // Out-degree should not exceed total distinct targets across available layers (local + jump)
         let stats = graph.statistics()
-        XCTAssertLessThanOrEqual(stats.maxOutDegree, config.nodesPerLayer)
+        let expectedMaxOutDegree = config.nodesPerLayer * 2 // layer+1 and layer+2 targets
+        XCTAssertLessThanOrEqual(stats.maxOutDegree, expectedMaxOutDegree)
     }
 }

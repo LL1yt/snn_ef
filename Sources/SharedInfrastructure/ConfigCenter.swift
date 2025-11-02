@@ -387,6 +387,11 @@ public struct ConfigRoot: Decodable {
                 public let min: Int
                 public let max: Int
 
+                public init(min: Int, max: Int) {
+                    self.min = min
+                    self.max = max
+                }
+
                 public init(from decoder: Decoder) throws {
                     var container = try decoder.unkeyedContainer()
                     let min = try container.decode(Int.self)
