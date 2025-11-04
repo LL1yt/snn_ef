@@ -24,7 +24,7 @@
 - Проект исследовательский, не продакшен: нет миграций, нет временных костылей; при некорректных данных — fail fast.
 - Без fallback, лучше явная ошибка.
 - Максимально задействуем Apple Silicon GPU (Metal/MPS); избегаем CPU, если это мешает GPU‑производительности.
-- Без CLI-флаг - реализуем это через чентральный конфиг, если надо.
+- Без CLI-флаг - реализуем это через центральный конфиг, если надо.
 - PipelineSnapshotExporter пишет JSON снапшоты в `paths.pipeline_snapshot`; UI и CLI читают/создают их на лету, LoggingHub хранит timestamp последнего события по `process_id`.
 
 High-level architecture and flow
@@ -33,6 +33,7 @@ High-level architecture and flow
 
   - ConfigCenter: single source of truth for config. Reads YAML, validates all keys, enforces invariants, and provides an immutable snapshot per step. CLI/UI use the same snapshot; changes require restart.
   - LoggingHub: centralized logging with levels (trace|debug|info|warn|error) и helper `emit(process:alias, ...)` — alias всегда переводится в canonical id. Поддерживает stdout/file destinations, относительное/абсолютное время и os_signpost.
+
 - ProcessRegistry: canonical process_id dictionary for all pipeline stages (e.g., capsule.encode, router.step, router.spike, ui.pipeline, cli.main). ConfigCenter.merge обновляет mapping; `resolve` бросает ошибку на неизвестный alias.
 
 - ReversibleCapsule
