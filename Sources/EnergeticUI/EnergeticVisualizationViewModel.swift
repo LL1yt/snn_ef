@@ -17,7 +17,7 @@ public final class EnergeticVisualizationViewModel: ObservableObject {
     private let configurationMaxSteps: Int
     private let historyLimit: Int
 
-    private var simulator: EnergyFlowSimulator?
+    // Legacy grid simulator removed; UI runs in headless mode for Flow backend.
 
     public init(
         config: RouterConfig,
@@ -29,72 +29,45 @@ public final class EnergeticVisualizationViewModel: ObservableObject {
         self.initialPackets = initialPackets
         self.configurationMaxSteps = maxSteps
         self.historyLimit = historyLimit
-        rebuildSimulator()
+        // Disable simulator; show hint
+        self.currentFrame = nil
+        self.frameHistory = []
+        self.hasFinished = true
+        self.errorDescription = "Flow backend UI is not implemented yet (headless only)."
     }
 
     public func reset() {
-        rebuildSimulator()
+        // No-op for flow backend
+        self.currentFrame = nil
+        self.frameHistory = []
+        self.hasFinished = true
+        self.errorDescription = "Flow backend UI is not implemented yet (headless only)."
     }
 
     public func step() {
-        guard let simulator else { return }
-        _ = simulator.step()
-        captureFrame(from: simulator)
+        // No-op
     }
 
     public func stepMultiple(count: Int) {
-        guard count > 0 else { return }
-        guard let simulator else { return }
-        for _ in 0..<count where !simulator.isFinished {
-            simulator.step()
-            captureFrame(from: simulator)
-        }
+        // No-op
     }
 
     public func runToEnd(maxIterations: Int? = nil) {
-        guard let simulator else { return }
-        var iterations = 0
-        let limit = maxIterations ?? configurationMaxSteps
-        while !simulator.isFinished && iterations < limit {
-            simulator.step()
-            captureFrame(from: simulator)
-            iterations += 1
-        }
+        // No-op
     }
 
     private func rebuildSimulator() {
-        do {
-            let router = try SpikeRouter.create(from: config)
-            let simulator = EnergyFlowSimulator(
-                router: router,
-                initialPackets: initialPackets,
-                maxSteps: configurationMaxSteps
-            )
-            self.simulator = simulator
-            errorDescription = nil
-            captureFrame(from: simulator, resetHistory: true)
-        } catch {
-            simulator = nil
-            currentFrame = nil
-            frameHistory = []
-            hasFinished = true
-            errorDescription = error.localizedDescription
-        }
+        // No-op (kept for API compatibility)
+        self.currentFrame = nil
+        self.frameHistory = []
+        self.hasFinished = true
+        self.errorDescription = "Flow backend UI is not implemented yet (headless only)."
     }
 
-    private func captureFrame(from simulator: EnergyFlowSimulator, resetHistory: Bool = false) {
-        let frame = simulator.snapshot()
-        currentFrame = frame
-        hasFinished = simulator.isFinished
-
-        if resetHistory {
-            frameHistory = [frame]
-        } else {
-            frameHistory.append(frame)
-            if frameHistory.count > historyLimit {
-                frameHistory.removeFirst(frameHistory.count - historyLimit)
-            }
-        }
+    private func captureFrame(from simulator: Any, resetHistory: Bool = false) {
+        // No-op placeholder to satisfy call sites if any linger
+        self.currentFrame = nil
+        self.hasFinished = true
     }
 
     /// Exports current frame to JSON snapshot
