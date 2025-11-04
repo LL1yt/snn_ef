@@ -1,6 +1,7 @@
 import EnergeticCore
 import Foundation
 import SharedInfrastructure
+import CapsuleCore
 
 @main
 struct EnergeticCLI {
@@ -25,15 +26,26 @@ struct EnergeticCLI {
             message: "Router config loaded from \(snapshot.sourceURL.path) · backend=\(routerConfig.backend), T=\(routerConfig.flow.T), bins=\(routerConfig.flow.projection.bins), surrogate=\(routerConfig.flow.lif.surrogate)"
         )
 
-        let router = EnergeticRouterPlaceholder()
-        LoggingHub.emit(process: "router.step", level: .info, message: router.describe())
+        // Flow run: take capsule example text -> energies -> flow bins
+        let flowCfg = FlowConfig.from(snapshot.root.router)
+        let exampleText = snapshot.root.capsule.pipelineExampleText.isEmpty ? "Hello, Energetic Router!" : snapshot.root.capsule.pipelineExampleText
+        let inputData = Data(exampleText.utf8)
+        let (batch, _) = try! CapsuleBridge.makeEnergies(from: inputData, config: snapshot.root.capsule)
+        let energiesU16 = batch.energies.map { UInt16($0) }
+        let bins = FlowBridgeSNN.simulate(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
 
+        // Log summary
+        let total = bins.reduce(0, +)
+        let nonZero = bins.enumerated().filter { $0.element > 0 }
+        LoggingHub.emit(process: "router.output", level: .info, message: "flow bins: total=\(String(format: "%.2f", total)) nonzero=\(nonZero.count)/\(bins.count)")
+
+        // Export config snapshot (without per-step flow frame for now)
         if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
             LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")
         }
 
-        let backendSummary = "Router backend: \(router.describe())"
-        print(backendSummary)
+        // Print concise report
+        print("Flow backend ✓ · bins=\(bins.count) total=\(String(format: "%.2f", total)) nonzero=\(nonZero.count)")
 
         let hint = CLIRenderer.hint(for: snapshot.root)
         print(hint)
