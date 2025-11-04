@@ -1,3 +1,4 @@
+> DEPRECATED: Legacy SNN grid plan. Current backend is FlowRouter (continuous plane). See Docs/migration_to_flow_router.md.
 # План реализации исследовательской архитектуры «энергетический роутер» (macOS · Swift · M4)
 
 _Оценка уверенности ≈ 85 %. План описывает спайковую (SNN) архитектуру EnergeticRouter: энергия движется по временной сетке, спайки инициируют прыжки без заранее заданных направлений. Фолбэков на прежнюю softmax/графовую схему нет._

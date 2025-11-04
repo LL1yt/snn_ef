@@ -1,7 +1,4 @@
-import Foundation
-
-/// Factory for creating SNN router components and validating configurations.
-public struct RouterFactory {
+// Removed: legacy RouterFactory and Grid validation; superseded by FlowRouter.
     
     // MARK: - Public API
     

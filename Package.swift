@@ -36,7 +36,13 @@ let package = Package(
         .target(
             name: "EnergeticCore",
             dependencies: ["SharedInfrastructure"],
-            path: "Sources/EnergeticCore"
+            path: "Sources/EnergeticCore",
+            exclude: [
+                "SpikeRouter.swift",
+                "EnergyFlowSimulator.swift",
+                "Graph.swift",
+                "GraphBuilder.swift"
+            ]
         ),
         .target(
             name: "CapsuleUI",
@@ -81,7 +87,14 @@ let package = Package(
         .testTarget(
             name: "EnergeticCoreTests",
             dependencies: ["EnergeticCore"],
-            path: "Tests/EnergeticCoreTests"
+            path: "Tests/EnergeticCoreTests",
+            exclude: [
+                "GraphBuilderTests.swift",
+                "GraphTests.swift",
+                "SpikeRouterTests.swift",
+                "EnergyFlowSimulatorTests.swift",
+                "GraphTypesTests.swift"
+            ]
         )
     ]
 )

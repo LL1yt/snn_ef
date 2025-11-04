@@ -1,3 +1,4 @@
+> DEPRECATED: This document describes the legacy grid-based router. See Docs/migration_to_flow_router.md for the FlowRouter plan.
 # План реализации EnergeticRouter SNN (CPU-first)
 
 **Статус**: готов к реализации  
