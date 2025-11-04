@@ -112,47 +112,47 @@ Constraints:
 
 ---
 
-## 6. Router Section
+## 6. Router Section (flow-only)
 
 ```yaml
 router:
-  layers: 10
-  nodes_per_layer: 1024
-  snn:
-    parameter_count: 512         # общее число обучаемых параметров
-    decay: 0.92                  # 0 < decay < 1
-    threshold: 0.8               # 0 < threshold ≤ 1
-    reset_value: 0.0
-    delta_x_range: [1, 4]        # min ≥ 1, max ≥ min
-    delta_y_range: [-128, 128]   # диапазон на оси Y, обязан содержать 0
-    surrogate: "fast_sigmoid"    # имя surrogate-функции
-    dt: 1                        # шаг по времени, ≥ 1
-  alpha: 0.9                     # коэффициент затухания энергии, 0 < α ≤ 1
-  energy_floor: 1.0e-5           # порог отсечения маленьких потоков, ≥ 0
+  backend: "flow"                 # единственный поддерживаемый бэкенд
+  flow:
+    T: 12                         # число шагов симуляции (≥ 1)
+    radius: 10.0                  # радиус окружности проекции (R > 0)
+    seed_layout: "ring"           # ring | disk
+    seed_radius: 1.0              # радиус начальной посадки семян (0 ≤ r0 < R)
+    lif:
+      decay: 0.92                 # (0, 1)
+      threshold: 0.8              # (0, 1]
+      reset_value: 0.0
+      surrogate: "fast_sigmoid"   # имя surrogate-функции
+    dynamics:
+      radial_bias: 0.15           # сила внешнего дрейфа наружу
+      noise_std_pos: 0.01         # шум позиции за шаг
+      noise_std_dir: 0.05         # шум направления/скачка
+      max_speed: 1.0              # ограничение скорости (>0)
+      energy_alpha: 0.9           # затухание энергии за шаг (0,1]
+      energy_floor: 1.0e-5        # порог отсечения (≥0)
+    interactions:
+      enabled: false
+      type: "none"                # none|repel|attract|kernel
+      strength: 0.0
+    projection:
+      shape: "circle"             # фиксировано в этом плане
+      bins: 256                   # = energy_constraints.energy_base
+      bin_smoothing: 0.0          # опционально
   energy_constraints:
-    energy_base: 256             # должно совпадать с capsule.base
-  training:
-    optimizer:
-      type: "adam"
-      lr: 1.0e-3
-      beta1: 0.9
-      beta2: 0.999
-      eps: 1.0e-8
-    losses:
-      energy_balance_weight: 1.0
-      jump_penalty_weight: 1.0e-2
-      spike_rate_target: 0.1
+    energy_base: 256              # должно совпадать с capsule.base
 ```
 
 Constraints:
 
-- `layers ≥ 1`, `nodes_per_layer ≥ 1`.
-- `snn.parameter_count ≥ 1`.
-- `0 < snn.decay < 1`, `0 < snn.threshold ≤ 1`.
-- `snn.delta_x_range.min ≥ 1`, `delta_x_range.max ≥ min`.
-- `snn.delta_y_range.min ≤ 0 ≤ max`.
-- `alpha` в диапазоне `(0, 1]`, `energy_floor ≥ 0`.
-- `energy_constraints.energy_base` = `capsule.base`.
+- `router.backend == "flow"`.
+- `flow.T ≥ 1`, `flow.radius > 0`, `0 ≤ seed_radius < radius`.
+- `lif.decay ∈ (0,1)`, `lif.threshold ∈ (0,1]`.
+- `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`.
+- `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.
 
 ---
 
@@ -229,32 +229,34 @@ capsule:
   gpu_batch: 512
 
 router:
-  layers: 10
-  nodes_per_layer: 1024
-  snn:
-    parameter_count: 512
-    decay: 0.92
-    threshold: 0.8
-    reset_value: 0.0
-    delta_x_range: [1, 4]
-    delta_y_range: [-128, 128]
-    surrogate: "fast_sigmoid"
-    dt: 1
-  alpha: 0.9
-  energy_floor: 1.0e-5
+  backend: "flow"
+  flow:
+    T: 12
+    radius: 10.0
+    seed_layout: "ring"
+    seed_radius: 1.0
+    lif:
+      decay: 0.92
+      threshold: 0.8
+      reset_value: 0.0
+      surrogate: "fast_sigmoid"
+    dynamics:
+      radial_bias: 0.15
+      noise_std_pos: 0.01
+      noise_std_dir: 0.05
+      max_speed: 1.0
+      energy_alpha: 0.9
+      energy_floor: 1.0e-5
+    interactions:
+      enabled: false
+      type: "none"
+      strength: 0.0
+    projection:
+      shape: "circle"
+      bins: 256
+      bin_smoothing: 0.0
   energy_constraints:
     energy_base: 256
-  training:
-    optimizer:
-      type: "adam"
-      lr: 1.0e-3
-      beta1: 0.9
-      beta2: 0.999
-      eps: 1.0e-8
-    losses:
-      energy_balance_weight: 1.0
-      jump_penalty_weight: 1.0e-2
-      spike_rate_target: 0.1
 
 ui:
   enabled: true

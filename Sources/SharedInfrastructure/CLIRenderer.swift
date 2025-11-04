@@ -5,8 +5,7 @@ public enum CLIRenderer {
         let uiEnabled = config.ui.enabled ? "enabled" : "disabled"
         let headlessNote = config.ui.headlessOverride ? "forced headless" : "toggleable"
         let pipelineSnippet = config.capsule.pipelineExampleText.isEmpty ? "n/a" : config.capsule.pipelineExampleText
-        let parameterCount = config.router.snn.parameterCount
-        let surrogate = config.router.snn.surrogate
+        let surrogate = config.router.flow.lif.surrogate
         let logsDir = config.paths.logsDir
 
         let snapshotURL = (try? PipelineSnapshotExporter.resolvedURL(for: config.paths.pipelineSnapshot, fileManager: .default))
@@ -33,7 +32,7 @@ public enum CLIRenderer {
         return """
         Profile: \(config.profile)
         UI: \(uiEnabled) (headless override: \(headlessNote))
-        SNN params: \(parameterCount) (surrogate: \(surrogate))
+        Router: backend=\(config.router.backend), T=\(config.router.flow.T), bins=\(config.router.flow.projection.bins), surrogate=\(surrogate)
         Logs directory: \(logsDir)
         Capsule example snippet: \(pipelineSnippet)
         \(snapshotInfo)

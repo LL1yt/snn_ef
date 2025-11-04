@@ -22,7 +22,7 @@ struct EnergeticCLI {
         LoggingHub.emit(
             process: "cli.main",
             level: .info,
-            message: "Router config loaded from \(snapshot.sourceURL.path) · layers=\(routerConfig.layers), nodes_per_layer=\(routerConfig.nodesPerLayer), params=\(routerConfig.snn.parameterCount), surrogate=\(routerConfig.snn.surrogate)"
+            message: "Router config loaded from \(snapshot.sourceURL.path) · backend=\(routerConfig.backend), T=\(routerConfig.flow.T), bins=\(routerConfig.flow.projection.bins), surrogate=\(routerConfig.flow.lif.surrogate)"
         )
 
         let router = EnergeticRouterPlaceholder()

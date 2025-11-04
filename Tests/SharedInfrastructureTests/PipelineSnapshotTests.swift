@@ -38,7 +38,8 @@ final class PipelineSnapshotTests: XCTestCase {
 
         let loaded: ConfigPipelineSnapshot? = PipelineSnapshotExporter.load(from: snapshot.root, fileManager: fm)
         XCTAssertNotNil(loaded)
-        XCTAssertEqual(loaded?.router.layers, snapshot.root.router.layers)
+        XCTAssertEqual(loaded?.router.backend, snapshot.root.router.backend)
+        XCTAssertEqual(loaded?.router.bins, snapshot.root.router.flow.projection.bins)
         XCTAssertFalse(loaded?.lastEvents.isEmpty ?? true)
     }
 
@@ -72,25 +73,25 @@ final class PipelineSnapshotTests: XCTestCase {
             gpuBatch: 16
         )
         let router = ConfigRoot.Router(
-            layers: 2,
-            nodesPerLayer: 4,
-            snn: .init(
-                parameterCount: 256,
-                decay: 0.9,
-                threshold: 0.8,
-                resetValue: 0.0,
-                deltaXRange: .init(min: 1, max: 2),
-                deltaYRange: .init(min: -2, max: 2),
-                surrogate: "fast_sigmoid",
-                dt: 1
+            backend: "flow",
+            flow: .init(
+                T: 3,
+                radius: 5.0,
+                seedLayout: "ring",
+                seedRadius: 1.0,
+                lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
+                dynamics: .init(
+                    radialBias: 0.1,
+                    noiseStdPos: 0.0,
+                    noiseStdDir: 0.0,
+                    maxSpeed: 1.0,
+                    energyAlpha: 0.9,
+                    energyFloor: 1.0e-5
+                ),
+                interactions: .init(enabled: false, type: "none", strength: 0.0),
+                projection: .init(shape: "circle", bins: alphabet.count, binSmoothing: 0.0)
             ),
-            alpha: 0.9,
-            energyFloor: 1.0e-5,
-            energyConstraints: .init(energyBase: alphabet.count),
-            training: .init(
-                optimizer: .init(type: "adam", lr: 1e-3, beta1: 0.9, beta2: 0.999, eps: 1e-8),
-                losses: .init(energyBalanceWeight: 1.0, jumpPenaltyWeight: 1.0e-2, spikeRateTarget: 0.1)
-            )
+            energyConstraints: .init(energyBase: alphabet.count)
         )
         let ui = ConfigRoot.UI(
             enabled: false,

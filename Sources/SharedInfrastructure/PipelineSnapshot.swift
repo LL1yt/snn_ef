@@ -9,12 +9,13 @@ public struct ConfigPipelineSnapshot: Codable {
     }
 
     public struct RouterSummary: Codable {
-        public let layers: Int
-        public let nodesPerLayer: Int
-        public let parameterCount: Int
+        public let backend: String
+        public let T: Int
+        public let radius: Double
         public let surrogate: String
-        public let alpha: Double
+        public let energyAlpha: Double
         public let energyFloor: Double
+        public let bins: Int
     }
 
     public struct EnergyFlowSnapshot: Codable {
@@ -193,12 +194,13 @@ public enum PipelineSnapshotExporter {
             pipelineExample: root.capsule.pipelineExampleText
         )
         let router = ConfigPipelineSnapshot.RouterSummary(
-            layers: root.router.layers,
-            nodesPerLayer: root.router.nodesPerLayer,
-            parameterCount: root.router.snn.parameterCount,
-            surrogate: root.router.snn.surrogate,
-            alpha: root.router.alpha,
-            energyFloor: root.router.energyFloor
+            backend: root.router.backend,
+            T: root.router.flow.T,
+            radius: root.router.flow.radius,
+            surrogate: root.router.flow.lif.surrogate,
+            energyAlpha: root.router.flow.dynamics.energyAlpha,
+            energyFloor: root.router.flow.dynamics.energyFloor,
+            bins: root.router.flow.projection.bins
         )
 
         let processes = ["capsule.encode", "router.step", "router.spike", "ui.pipeline", "cli.main"]
@@ -250,12 +252,13 @@ public enum PipelineSnapshotExporter {
             pipelineExample: root.capsule.pipelineExampleText
         )
         let router = ConfigPipelineSnapshot.RouterSummary(
-            layers: root.router.layers,
-            nodesPerLayer: root.router.nodesPerLayer,
-            parameterCount: root.router.snn.parameterCount,
-            surrogate: root.router.snn.surrogate,
-            alpha: root.router.alpha,
-            energyFloor: root.router.energyFloor
+            backend: root.router.backend,
+            T: root.router.flow.T,
+            radius: root.router.flow.radius,
+            surrogate: root.router.flow.lif.surrogate,
+            energyAlpha: root.router.flow.dynamics.energyAlpha,
+            energyFloor: root.router.flow.dynamics.energyFloor,
+            bins: root.router.flow.projection.bins
         )
 
         let processes = ["capsule.encode", "router.step", "router.spike", "ui.pipeline", "cli.main"]

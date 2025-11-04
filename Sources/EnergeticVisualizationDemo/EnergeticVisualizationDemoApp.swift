@@ -25,7 +25,8 @@ struct EnergeticVisualizationDemoApp: App {
             ProcessRegistry.configure(from: loadedSnapshot)
 
             resolvedSnapshot = loadedSnapshot
-            resolvedConfig = try RouterFactory.createFrom(loadedSnapshot.root.router)
+            // Flow backend: demo uses internal test config until Flow UI is wired
+            resolvedConfig = RouterFactory.createTestConfig()
             resolvedPackets = EnergeticVisualizationDemoApp.makeInitialPackets(config: resolvedConfig)
             resolvedError = nil
 

@@ -35,14 +35,13 @@ public struct EnergeticUIPreview: View {
                 let router = snapshot.root.router
                 Text("Router Dashboard")
                     .font(.title2)
-                LabeledContent("Layers") { Text("\(router.layers)") }
-                LabeledContent("Nodes / layer") { Text("\(router.nodesPerLayer)") }
-                LabeledContent("SNN Params") { Text("\(router.snn.parameterCount)") }
-                LabeledContent("Surrogate") { Text(router.snn.surrogate) }
-                LabeledContent("Δx range") { Text("[\(router.snn.deltaXRange.min), \(router.snn.deltaXRange.max)]") }
-                LabeledContent("Δy range") { Text("[\(router.snn.deltaYRange.min), \(router.snn.deltaYRange.max)]") }
-                LabeledContent("Alpha") { Text(String(format: "%.3f", router.alpha)) }
-                LabeledContent("Energy floor") { Text(String(format: "%.2e", router.energyFloor)) }
+                LabeledContent("Backend") { Text(router.backend) }
+                LabeledContent("T (steps)") { Text("\(router.flow.T)") }
+                LabeledContent("Radius") { Text(String(format: "%.2f", router.flow.radius)) }
+                LabeledContent("Bins") { Text("\(router.flow.projection.bins)") }
+                LabeledContent("Surrogate") { Text(router.flow.lif.surrogate) }
+                LabeledContent("Energy α") { Text(String(format: "%.3f", router.flow.dynamics.energyAlpha)) }
+                LabeledContent("Energy floor") { Text(String(format: "%.2e", router.flow.dynamics.energyFloor)) }
 
                 if let lastRouterEvent {
                     Text("Last router event: \(format(date: lastRouterEvent))")
