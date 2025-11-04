@@ -34,13 +34,31 @@ struct EnergeticCLI {
         let energiesU16 = batch.energies.map { UInt16($0) }
         let bins = FlowBridgeSNN.simulate(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
 
+        // Prepare flow snapshot: ring seeds + selected particle samples
+        let seedsParticles = FlowSeeds.makeSeeds(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
+        let ringSeeds: [ConfigPipelineSnapshot.FlowSnapshot.RingSeed] = seedsParticles.map { p in
+            let angle = atan2(Double(p.pos.y), Double(p.pos.x))
+            return .init(id: p.id, angle: angle, x: Double(p.pos.x), y: Double(p.pos.y), energy: Double(p.energy))
+        }
+        let sampleCount = min(8, seedsParticles.count)
+        let samples: [ConfigPipelineSnapshot.FlowSnapshot.ParticleSample] = Array(seedsParticles.prefix(sampleCount)).map { p in
+            .init(id: p.id, x: Double(p.pos.x), y: Double(p.pos.y), vx: Double(p.vel.x), vy: Double(p.vel.y), energy: Double(p.energy), V: Double(p.V))
+        }
+        let flowSnapshot = ConfigPipelineSnapshot.FlowSnapshot(
+            bins: bins.map { Double($0) },
+            radius: Double(flowCfg.radius),
+            stepCount: flowCfg.T,
+            ringSeeds: ringSeeds,
+            samples: samples
+        )
+
         // Log summary
         let total = bins.reduce(0, +)
         let nonZero = bins.enumerated().filter { $0.element > 0 }
         LoggingHub.emit(process: "router.output", level: .info, message: "flow bins: total=\(String(format: "%.2f", total)) nonzero=\(nonZero.count)/\(bins.count)")
 
-        // Export config snapshot (without per-step flow frame for now)
-        if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+        // Export snapshot with flow data (headless parity for UI)
+        if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot, flow: flowSnapshot) {
             LoggingHub.emit(process: "cli.main", level: .debug, message: "Pipeline snapshot exported at \(exported.generatedAt)")
         }
 

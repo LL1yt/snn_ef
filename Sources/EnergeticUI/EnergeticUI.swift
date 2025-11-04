@@ -51,7 +51,7 @@ public struct EnergeticUIPreview: View {
                 }
 
                 if let info = loadedSnapshot {
-                    Text("Snapshot profile: \(info.profile) at \(format(date: info.generatedAt))")
+                    Text("Snapshot profile: \\(info.profile) at \\(format(date: info.generatedAt))")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
@@ -63,11 +63,24 @@ public struct EnergeticUIPreview: View {
                         loadedSnapshot = PipelineSnapshotExporter.load(from: root)
                     }
                     Button("Export Snapshot") {
-                        if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+                        if let flow = loadedSnapshot?.flow,
+                           let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot, flow: flow) {
+                            loadedSnapshot = exported
+                            lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.step")
+                        } else if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
                             loadedSnapshot = exported
                             lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.step")
                         }
                     }
+                }
+
+                if let flow = loadedSnapshot?.flow {
+                    FlowRingHistogramView(flow: flow)
+                        .frame(height: 280)
+                } else {
+                    Text("No flow snapshot yet — run CLI export to generate one.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
             } else {
                 Text("Config snapshot not available")

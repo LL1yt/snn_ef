@@ -141,6 +141,54 @@ public struct ConfigPipelineSnapshot: Codable {
         }
     }
 
+    // MARK: - Flow backend snapshot (ring seeds + boundary histogram)
+    public struct FlowSnapshot: Codable {
+        public struct RingSeed: Codable {
+            public let id: Int
+            public let angle: Double // radians [-pi, pi]
+            public let x: Double
+            public let y: Double
+            public let energy: Double
+            public init(id: Int, angle: Double, x: Double, y: Double, energy: Double) {
+                self.id = id
+                self.angle = angle
+                self.x = x
+                self.y = y
+                self.energy = energy
+            }
+        }
+        public struct ParticleSample: Codable {
+            public let id: Int
+            public let x: Double
+            public let y: Double
+            public let vx: Double
+            public let vy: Double
+            public let energy: Double
+            public let V: Double
+            public init(id: Int, x: Double, y: Double, vx: Double, vy: Double, energy: Double, V: Double) {
+                self.id = id
+                self.x = x
+                self.y = y
+                self.vx = vx
+                self.vy = vy
+                self.energy = energy
+                self.V = V
+            }
+        }
+        public let bins: [Double]
+        public let radius: Double
+        public let stepCount: Int
+        public let ringSeeds: [RingSeed]
+        public let samples: [ParticleSample]
+        public init(bins: [Double], radius: Double, stepCount: Int, ringSeeds: [RingSeed], samples: [ParticleSample]) {
+            self.bins = bins
+            self.radius = radius
+            self.stepCount = stepCount
+            self.ringSeeds = ringSeeds
+            self.samples = samples
+        }
+    }
+
     public let generatedAt: Date
     public let profile: String
     public let capsule: CapsuleSummary
@@ -148,6 +196,7 @@ public struct ConfigPipelineSnapshot: Codable {
     public let hint: String
     public let lastEvents: [String: Date]
     public let energyFlowSnapshot: EnergyFlowSnapshot?
+    public let flow: FlowSnapshot?
 }
 
 public enum PipelineSnapshotExporter {
@@ -220,7 +269,8 @@ public enum PipelineSnapshotExporter {
             router: router,
             hint: hint,
             lastEvents: lastEvents,
-            energyFlowSnapshot: nil
+            energyFlowSnapshot: nil,
+            flow: nil
         )
     }
 
@@ -230,7 +280,24 @@ public enum PipelineSnapshotExporter {
         energyFlowFrame: ConfigPipelineSnapshot.EnergyFlowSnapshot?,
         fileManager: FileManager = .default
     ) throws -> ConfigPipelineSnapshot {
-        let pipelineSnapshot = makeSnapshot(from: snapshot, energyFlowSnapshot: energyFlowFrame)
+        let pipelineSnapshot = makeSnapshot(from: snapshot, energyFlowSnapshot: energyFlowFrame, flow: nil)
+        let url = try resolvedURL(for: snapshot.root.paths.pipelineSnapshot, fileManager: fileManager)
+        try ensureDirectory(for: url, fileManager: fileManager)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(pipelineSnapshot)
+        try data.write(to: url, options: .atomic)
+        return pipelineSnapshot
+    }
+
+    /// Exports snapshot with Flow (ring + histogram) data
+    public static func export(
+        snapshot: ConfigSnapshot,
+        flow: ConfigPipelineSnapshot.FlowSnapshot?,
+        fileManager: FileManager = .default
+    ) throws -> ConfigPipelineSnapshot {
+        let pipelineSnapshot = makeSnapshot(from: snapshot, energyFlowSnapshot: nil, flow: flow)
         let url = try resolvedURL(for: snapshot.root.paths.pipelineSnapshot, fileManager: fileManager)
         try ensureDirectory(for: url, fileManager: fileManager)
         let encoder = JSONEncoder()
@@ -243,7 +310,8 @@ public enum PipelineSnapshotExporter {
 
     private static func makeSnapshot(
         from snapshot: ConfigSnapshot,
-        energyFlowSnapshot: ConfigPipelineSnapshot.EnergyFlowSnapshot?
+        energyFlowSnapshot: ConfigPipelineSnapshot.EnergyFlowSnapshot?,
+        flow: ConfigPipelineSnapshot.FlowSnapshot?
     ) -> ConfigPipelineSnapshot {
         let root = snapshot.root
         let capsule = ConfigPipelineSnapshot.CapsuleSummary(
@@ -278,7 +346,8 @@ public enum PipelineSnapshotExporter {
             router: router,
             hint: hint,
             lastEvents: lastEvents,
-            energyFlowSnapshot: energyFlowSnapshot
+            energyFlowSnapshot: energyFlowSnapshot,
+            flow: flow
         )
     }
 }
