@@ -377,7 +377,7 @@ tail -f Logs/baseline.log | grep ui.pipeline
 
 - [План визуализации](../../Docs/plan_capsule_visualization_incremental.md)
 - [План капсюля](../../Docs/plan_reversible_text_capsule_swift_macos.md)
-- [План роутера](../../Docs/plan_snn_router_swift_macos.md)
+- [Миграция на FlowRouter](../../Docs/migration_to_flow_router.md)
 
 ## Лицензия
 

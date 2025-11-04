@@ -1,3 +1,4 @@
+> DEPRECATED: Graph-based router explanation; project now uses continuous FlowRouter. See Docs/migration_to_flow_router.md.
 # EnergeticRouter Graph Architecture - Детальное объяснение
 
 ## ❓ Вопрос: Что такое "10×1024 узлов, ~90K рёбер"?

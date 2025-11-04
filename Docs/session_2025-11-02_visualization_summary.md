@@ -4,10 +4,7 @@
 - **Отладили EnergeticCore**: зафиксировали deterministic веса `SpikingKernel` и поправили surrogate-градиент (`fast_sigmoid`) так, чтобы тесты проходили и мембрана адекватно реагировала.
 - **Исправили CLI-интеграцию**: `capsule-cli` и `energetic-cli` теперь печатают подсказки/сводку при запуске без аргументов, что починило `CLIntegrationTests`.
 - **Добавили снимок состояния SNN**: `EnergyFlowSimulator.snapshot()` возвращает `EnergyFlowFrame` с пакетами, мембранами и агрегацией по слоям.
-- **Построили визуализацию EnergeticCore на CPU**:
-  - `EnergeticVisualizationViewModel` — управляет `EnergyFlowSimulator`, хранит историю кадров.
-  - `EnergeticVisualizationView` — SwiftUI-панель с контролами (шаг, run-to-end, сброс), показом энергии по слоям, пакетами, статистикой мембраны, журналом шагов.
-  - `EnergeticUIPreview` расширен, а также добавлен отдельный `EnergeticVisualizationDemo` (`swift run EnergeticVisualizationDemo`) для быстрого запуска.
+- (Устарело) Визуализация EnergeticCore поверх grid-симулятора: заморожена. Текущий backend — FlowRouter (R², круговая проекция). UI будет обновлён позднее.
 - **Обновили план**: создан документ `Docs/plan_energeticcore_visualization.md` с целями и этапами GPU/Metal визуализации.
 
 ## Потенциальные следующие шаги
