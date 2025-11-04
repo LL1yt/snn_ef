@@ -66,7 +66,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "EnergeticCLI",
-            dependencies: ["SharedInfrastructure", "EnergeticCore"],
+            dependencies: ["SharedInfrastructure", "EnergeticCore", "CapsuleCore"],
             path: "Sources/EnergeticCLI"
         ),
         .executableTarget(

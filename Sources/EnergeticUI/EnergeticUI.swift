@@ -13,11 +13,8 @@ public struct EnergeticUIPreview: View {
 
     public init(snapshot: ConfigSnapshot? = try? ConfigCenter.load()) {
         self.snapshot = snapshot
-        if let root = snapshot?.root, let config = try? RouterFactory.createFrom(root.router) {
-            self.routerConfig = config
-        } else {
-            self.routerConfig = RouterFactory.createTestConfig()
-        }
+        // Flow backend: RouterFactory removed; use stub config for preview
+        self.routerConfig = EnergeticUIPreview.makeStubConfig()
         self.samplePackets = EnergeticUIPreview.makeSamplePackets(config: routerConfig)
 
         if let root = snapshot?.root {
@@ -111,5 +108,26 @@ public struct EnergeticUIPreview: View {
             EnergyPacket(streamID: 2, x: 0, y: midY, energy: 96.0, time: 0),
             EnergyPacket(streamID: 3, x: 0, y: threeQuarterY, energy: 64.0, time: 0)
         ]
+    }
+
+    private static func makeStubConfig() -> RouterConfig {
+        let snn = SNNConfig(
+            parameterCount: 128,
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...1,
+            deltaYRange: 0...0,
+            surrogate: "fast_sigmoid",
+            dt: 1
+        )
+        return RouterConfig(
+            layers: 1,
+            nodesPerLayer: 1,
+            snn: snn,
+            alpha: 1.0,
+            energyFloor: 0.0,
+            energyBase: 256
+        )
     }
 }
