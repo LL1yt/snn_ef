@@ -46,6 +46,7 @@ enum Validation {
         try ensureAlphabetLength(capsule: root.capsule)
         try ensureEnergyBaseMatches(capsule: root.capsule, router: root.router)
         try ensureFlowRouterParameters(router: root.router)
+        try ensureLearningParameters(router: root.router)
         try ensureBlockSize(capsule: root.capsule)
         try ensureLoggingDestinations(logging: root.logging)
         try ensureProcessRegistry(root.processRegistry)
@@ -104,6 +105,76 @@ enum Validation {
         }
     }
 
+    private static func ensureLearningParameters(router: ConfigRoot.Router) throws {
+        let learning = router.flow.learning
+        if learning.epochs < 0 {
+            throw ConfigError.invalidLearningParameter("epochs must be ≥ 0 (got \(learning.epochs))")
+        }
+        if learning.stepsPerEpoch < 1 {
+            throw ConfigError.invalidLearningParameter("steps_per_epoch must be ≥ 1 (got \(learning.stepsPerEpoch))")
+        }
+        if learning.targetSpikeRate < 0 || learning.targetSpikeRate > 1 {
+            throw ConfigError.invalidLearningParameter("target_spike_rate must be in [0, 1] (got \(learning.targetSpikeRate))")
+        }
+        // Learning rates
+        if learning.lr.gain < 0 {
+            throw ConfigError.invalidLearningParameter("lr.gain must be ≥ 0 (got \(learning.lr.gain))")
+        }
+        if learning.lr.lif < 0 {
+            throw ConfigError.invalidLearningParameter("lr.lif must be ≥ 0 (got \(learning.lr.lif))")
+        }
+        if learning.lr.dynamics < 0 {
+            throw ConfigError.invalidLearningParameter("lr.dynamics must be ≥ 0 (got \(learning.lr.dynamics))")
+        }
+        // Loss weights
+        if learning.weights.spike < 0 {
+            throw ConfigError.invalidLearningParameter("weights.spike must be ≥ 0 (got \(learning.weights.spike))")
+        }
+        if learning.weights.boundary < 0 {
+            throw ConfigError.invalidLearningParameter("weights.boundary must be ≥ 0 (got \(learning.weights.boundary))")
+        }
+        // Bounds arrays
+        if learning.bounds.theta.count != 2 {
+            throw ConfigError.invalidLearningParameter("bounds.theta must have exactly 2 elements [min, max]")
+        }
+        if learning.bounds.theta[0] >= learning.bounds.theta[1] {
+            throw ConfigError.invalidLearningParameter("bounds.theta[0] must be < theta[1]")
+        }
+        if learning.bounds.radialBias.count != 2 {
+            throw ConfigError.invalidLearningParameter("bounds.radial_bias must have exactly 2 elements [min, max]")
+        }
+        if learning.bounds.radialBias[0] >= learning.bounds.radialBias[1] {
+            throw ConfigError.invalidLearningParameter("bounds.radial_bias[0] must be < radial_bias[1]")
+        }
+        if learning.bounds.spikeKick.count != 2 {
+            throw ConfigError.invalidLearningParameter("bounds.spike_kick must have exactly 2 elements [min, max]")
+        }
+        if learning.bounds.spikeKick[0] >= learning.bounds.spikeKick[1] {
+            throw ConfigError.invalidLearningParameter("bounds.spike_kick[0] must be < spike_kick[1]")
+        }
+        if learning.bounds.gain.count != 2 {
+            throw ConfigError.invalidLearningParameter("bounds.gain must have exactly 2 elements [min, max]")
+        }
+        if learning.bounds.gain[0] >= learning.bounds.gain[1] {
+            throw ConfigError.invalidLearningParameter("bounds.gain[0] must be < gain[1]")
+        }
+        // Aggregator parameters
+        if learning.aggregator.sigmaR <= 0 {
+            throw ConfigError.invalidLearningParameter("aggregator.sigma_r must be > 0 (got \(learning.aggregator.sigmaR))")
+        }
+        if learning.aggregator.sigmaE <= 0 {
+            throw ConfigError.invalidLearningParameter("aggregator.sigma_e must be > 0 (got \(learning.aggregator.sigmaE))")
+        }
+        // Target type
+        let validTypes = ["capsule-digits", "file"]
+        if !validTypes.contains(learning.targets.type) {
+            throw ConfigError.invalidLearningParameter("targets.type must be one of \(validTypes) (got \(learning.targets.type))")
+        }
+        if learning.targets.type == "file" && (learning.targets.path == nil || learning.targets.path!.isEmpty) {
+            throw ConfigError.invalidLearningParameter("targets.path is required when type is 'file'")
+        }
+    }
+
     private static func ensureBlockSize(capsule: ConfigRoot.Capsule) throws {
         let headerBytes = 7
         if capsule.blockSize < capsule.maxInputBytes + headerBytes {
@@ -151,6 +222,7 @@ public enum ConfigError: LocalizedError {
     case invalidRouterBackend(String)
     case invalidEnergyFloor(Double)
     case invalidFlowParameter(String)
+    case invalidLearningParameter(String)
 
     public var errorDescription: String? {
         switch self {
@@ -182,6 +254,8 @@ public enum ConfigError: LocalizedError {
             return "router.flow.dynamics.energy_floor must be ≥ 0 (got \(value))"
         case let .invalidFlowParameter(reason):
             return "Invalid flow router parameter: \(reason)"
+        case let .invalidLearningParameter(reason):
+            return "Invalid learning parameter: \(reason)"
         }
     }
 }
@@ -311,6 +385,7 @@ public struct ConfigRoot: Decodable {
             public let dynamics: Dynamics
             public let interactions: Interactions
             public let projection: Projection
+            public let learning: Learning
 
             enum CodingKeys: String, CodingKey {
                 case T
@@ -321,6 +396,7 @@ public struct ConfigRoot: Decodable {
                 case dynamics
                 case interactions
                 case projection
+                case learning
             }
 
             public struct LIF: Decodable {
@@ -370,6 +446,78 @@ public struct ConfigRoot: Decodable {
                     case shape
                     case bins
                     case binSmoothing = "bin_smoothing"
+                }
+            }
+
+            public struct Learning: Decodable {
+                public let enabled: Bool
+                public let epochs: Int
+                public let stepsPerEpoch: Int
+                public let targetSpikeRate: Double
+                public let lr: LearningRates
+                public let weights: LossWeights
+                public let bounds: ParameterBounds
+                public let aggregator: Aggregator
+                public let targets: Targets
+
+                enum CodingKeys: String, CodingKey {
+                    case enabled
+                    case epochs
+                    case stepsPerEpoch = "steps_per_epoch"
+                    case targetSpikeRate = "target_spike_rate"
+                    case lr
+                    case weights
+                    case bounds
+                    case aggregator
+                    case targets
+                }
+
+                public struct LearningRates: Decodable {
+                    public let gain: Double
+                    public let lif: Double
+                    public let dynamics: Double
+                }
+
+                public struct LossWeights: Decodable {
+                    public let spike: Double
+                    public let boundary: Double
+                }
+
+                public struct ParameterBounds: Decodable {
+                    public let theta: [Double]
+                    public let radialBias: [Double]
+                    public let spikeKick: [Double]
+                    public let gain: [Double]
+
+                    enum CodingKeys: String, CodingKey {
+                        case theta
+                        case radialBias = "radial_bias"
+                        case spikeKick = "spike_kick"
+                        case gain
+                    }
+                }
+
+                public struct Aggregator: Decodable {
+                    public let sigmaR: Double
+                    public let sigmaE: Double
+                    public let alpha: Double
+                    public let beta: Double
+                    public let gamma: Double
+                    public let tau: Double
+
+                    enum CodingKeys: String, CodingKey {
+                        case sigmaR = "sigma_r"
+                        case sigmaE = "sigma_e"
+                        case alpha
+                        case beta
+                        case gamma
+                        case tau
+                    }
+                }
+
+                public struct Targets: Decodable {
+                    public let type: String
+                    public let path: String?
                 }
             }
         }
