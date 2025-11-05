@@ -2,6 +2,7 @@ import SwiftUI
 import EnergeticCore
 import EnergeticUI
 import SharedInfrastructure
+import CapsuleCore
 
 @main
 struct EnergeticVisualizationDemoApp: App {
@@ -50,26 +51,25 @@ struct EnergeticVisualizationDemoApp: App {
     var body: some Scene {
         WindowGroup {
             if loadError == nil || snapshot != nil {
-                if let cfgSnap = snapshot,
-                   let flow = PipelineSnapshotExporter.load(from: cfgSnap.root)?.flow {
-                    FlowRingHistogramView(flow: flow)
-                        .frame(minWidth: 900, minHeight: 640)
-                        .padding()
-                } else {
-                    VStack(spacing: 12) {
-                        Text("No flow snapshot found")
-                            .font(.headline)
-                        Text("Run: swift run energetic-cli (optionally set SNN_CONFIG_PATH) to generate Artifacts/pipeline_snapshot.json")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        EnergeticVisualizationView(
-                            config: routerConfig,
-                            initialPackets: initialPackets,
-                            maxSteps: 256,
-                            title: "Energetic Router Simulation"
-                        )
+                if let cfgSnap = snapshot {
+                    // Build Flow live demo inputs from config + capsule example
+                    let cfg = FlowConfig.from(cfgSnap.root.router)
+                    let exampleText = cfgSnap.root.capsule.pipelineExampleText.isEmpty ? "Hello, Energetic Router!" : cfgSnap.root.capsule.pipelineExampleText
+                    let inputData = Data(exampleText.utf8)
+                    let (batch, _) = try! CapsuleBridge.makeEnergies(from: inputData, config: cfgSnap.root.capsule)
+                    let energies = batch.energies.map { UInt16($0) }
+
+                    VStack(spacing: 16) {
+                        FlowLiveView(cfg: cfg, energies: energies, seed: UInt64(cfgSnap.root.seed))
+                            .frame(minWidth: 900, minHeight: 640)
+                        if let flow = PipelineSnapshotExporter.load(from: cfgSnap.root)?.flow {
+                            FlowRingHistogramView(flow: flow)
+                                .frame(height: 280)
+                                .padding(.horizontal)
+                        }
                     }
-                    .frame(minWidth: 900, minHeight: 640)
+                } else {
+                    FailureView(error: loadError)
                 }
             } else {
                 FailureView(error: loadError)
