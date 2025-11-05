@@ -148,6 +148,33 @@ final class CLIntegrationTests: XCTestCase {
               shape: "circle"
               bins: 256
               bin_smoothing: 0.0
+            learning:
+              enabled: false
+              epochs: 1
+              steps_per_epoch: 1
+              target_spike_rate: 0.15
+              lr:
+                gain: 0.001
+                lif: 0.01
+                dynamics: 0.005
+              weights:
+                spike: 0.1
+                boundary: 0.05
+              bounds:
+                theta: [0.5, 1.0]
+                radial_bias: [0.0, 0.5]
+                spike_kick: [0.0, 1.0]
+                gain: [0.1, 2.0]
+              aggregator:
+                sigma_r: 2.5
+                sigma_e: 10.0
+                alpha: 1.0
+                beta: 1.0
+                gamma: 0.5
+                tau: 1.0
+              targets:
+                type: "capsule-digits"
+                path: null
           energy_constraints:
             energy_base: 256
         ui:
