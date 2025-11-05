@@ -122,6 +122,8 @@ final class CLIntegrationTests: XCTestCase {
           crc: "crc32"
           gpu_batch: 128
         router:
+          snn:
+            parameter_count: 512
           backend: "flow"
           flow:
             T: 3
