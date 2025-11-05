@@ -50,13 +50,27 @@ struct EnergeticVisualizationDemoApp: App {
     var body: some Scene {
         WindowGroup {
             if loadError == nil || snapshot != nil {
-                EnergeticVisualizationView(
-                    config: routerConfig,
-                    initialPackets: initialPackets,
-                    maxSteps: 256,
-                    title: "Energetic Router Simulation"
-                )
-                .frame(minWidth: 900, minHeight: 640)
+                if let cfgSnap = snapshot,
+                   let flow = PipelineSnapshotExporter.load(from: cfgSnap.root)?.flow {
+                    FlowRingHistogramView(flow: flow)
+                        .frame(minWidth: 900, minHeight: 640)
+                        .padding()
+                } else {
+                    VStack(spacing: 12) {
+                        Text("No flow snapshot found")
+                            .font(.headline)
+                        Text("Run: swift run energetic-cli (optionally set SNN_CONFIG_PATH) to generate Artifacts/pipeline_snapshot.json")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        EnergeticVisualizationView(
+                            config: routerConfig,
+                            initialPackets: initialPackets,
+                            maxSteps: 256,
+                            title: "Energetic Router Simulation"
+                        )
+                    }
+                    .frame(minWidth: 900, minHeight: 640)
+                }
             } else {
                 FailureView(error: loadError)
             }
