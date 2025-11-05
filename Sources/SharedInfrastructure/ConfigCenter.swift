@@ -476,11 +476,22 @@ public struct ConfigRoot: Decodable {
                     public let gain: Double
                     public let lif: Double
                     public let dynamics: Double
+
+                    public init(gain: Double, lif: Double, dynamics: Double) {
+                        self.gain = gain
+                        self.lif = lif
+                        self.dynamics = dynamics
+                    }
                 }
 
                 public struct LossWeights: Decodable {
                     public let spike: Double
                     public let boundary: Double
+
+                    public init(spike: Double, boundary: Double) {
+                        self.spike = spike
+                        self.boundary = boundary
+                    }
                 }
 
                 public struct ParameterBounds: Decodable {
@@ -494,6 +505,13 @@ public struct ConfigRoot: Decodable {
                         case radialBias = "radial_bias"
                         case spikeKick = "spike_kick"
                         case gain
+                    }
+
+                    public init(theta: [Double], radialBias: [Double], spikeKick: [Double], gain: [Double]) {
+                        self.theta = theta
+                        self.radialBias = radialBias
+                        self.spikeKick = spikeKick
+                        self.gain = gain
                     }
                 }
 
@@ -513,11 +531,37 @@ public struct ConfigRoot: Decodable {
                         case gamma
                         case tau
                     }
+
+                    public init(sigmaR: Double, sigmaE: Double, alpha: Double, beta: Double, gamma: Double, tau: Double) {
+                        self.sigmaR = sigmaR
+                        self.sigmaE = sigmaE
+                        self.alpha = alpha
+                        self.beta = beta
+                        self.gamma = gamma
+                        self.tau = tau
+                    }
                 }
 
                 public struct Targets: Decodable {
                     public let type: String
                     public let path: String?
+
+                    public init(type: String, path: String?) {
+                        self.type = type
+                        self.path = path
+                    }
+                }
+
+                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
+                    self.enabled = enabled
+                    self.epochs = epochs
+                    self.stepsPerEpoch = stepsPerEpoch
+                    self.targetSpikeRate = targetSpikeRate
+                    self.lr = lr
+                    self.weights = weights
+                    self.bounds = bounds
+                    self.aggregator = aggregator
+                    self.targets = targets
                 }
             }
         }
