@@ -89,7 +89,18 @@ final class PipelineSnapshotTests: XCTestCase {
                     energyFloor: 1.0e-5
                 ),
                 interactions: .init(enabled: false, type: "none", strength: 0.0),
-                projection: .init(shape: "circle", bins: alphabet.count, binSmoothing: 0.0)
+                projection: .init(shape: "circle", bins: alphabet.count, binSmoothing: 0.0),
+                learning: .init(
+                    enabled: false,
+                    epochs: 1,
+                    stepsPerEpoch: 1,
+                    targetSpikeRate: 0.15,
+                    lr: .init(gain: 0.001, lif: 0.01, dynamics: 0.005),
+                    weights: .init(spike: 0.1, boundary: 0.05),
+                    bounds: .init(theta: [0.5, 1.0], radialBias: [0.0, 0.5], spikeKick: [0.0, 1.0], gain: [0.1, 2.0]),
+                    aggregator: .init(sigmaR: 2.5, sigmaE: 10.0, alpha: 1.0, beta: 1.0, gamma: 0.5, tau: 1.0),
+                    targets: .init(type: "capsule-digits", path: nil)
+                )
             ),
             energyConstraints: .init(energyBase: alphabet.count)
         )

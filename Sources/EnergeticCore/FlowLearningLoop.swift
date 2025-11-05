@@ -322,9 +322,10 @@ public final class FlowLearningLoop {
 
     private func computeMeanRadialMiss(completions: [CompletionEvent], radius: Float) -> Float {
         guard !completions.isEmpty else { return 0 }
-        let sum: Float = completions.reduce(0.0) { sum, comp in
+        let sum: Float = completions.reduce(Float(0.0)) { (sum: Float, comp: CompletionEvent) -> Float in
             let r = length(comp.position)
-            return sum + abs(r - radius)
+            let diff = r - radius
+            return sum + Swift.abs(diff)
         }
         return sum / Float(completions.count)
     }
