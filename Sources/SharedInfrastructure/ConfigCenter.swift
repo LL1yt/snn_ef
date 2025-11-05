@@ -45,7 +45,7 @@ enum Validation {
     static func validate(root: ConfigRoot) throws {
         try ensureAlphabetLength(capsule: root.capsule)
         try ensureEnergyBaseMatches(capsule: root.capsule, router: root.router)
-        try ensureRouterParameters(router: root.router)
+        try ensureFlowRouterParameters(router: root.router)
         try ensureBlockSize(capsule: root.capsule)
         try ensureLoggingDestinations(logging: root.logging)
         try ensureProcessRegistry(root.processRegistry)
@@ -53,34 +53,6 @@ enum Validation {
     }
 
     private static func ensureAlphabetLength(capsule: ConfigRoot.Capsule) throws {
-        // #if DEBUG
-        // let s = capsule.alphabet
-        // let graphemeCount = s.count
-        // let scalarCount = s.unicodeScalars.count
-        // let utf8Count = s.utf8.count
-        // let uniqueCount = Set(s).count
-
-        // var lines: [String] = []
-        // lines.reserveCapacity(graphemeCount)
-        // var i = 0
-        // for ch in s {
-        //     let scalars = String(ch).unicodeScalars
-        //         .map { String(format: "U+%04X", $0.value) }
-        //         .joined(separator: "+")
-        //     lines.append(String(format: "%03d '%@' [%@]", i, String(ch), scalars))
-        //     i += 1
-        // }
-
-        // fputs("""
-        // [ConfigCenter] Alphabet diagnostics
-        // base=\(capsule.base)
-        // graphemes=\(graphemeCount) scalars=\(scalarCount) utf8_bytes=\(utf8Count) unique_graphemes=\(uniqueCount)
-        // alphabet="\(s)"
-        // indices:\n\(lines.joined(separator: "\n"))
-
-        // """, stderr)
-        // #endif
-
         if capsule.alphabet.count != capsule.base {
             throw ConfigError.invalidAlphabetLength(expected: capsule.base, actual: capsule.alphabet.count)
         }
@@ -92,47 +64,43 @@ enum Validation {
         }
     }
 
-    private static func ensureRouterParameters(router: ConfigRoot.Router) throws {
-        if router.layers < 1 {
-            throw ConfigError.invalidRouterLayers(router.layers)
+    private static func ensureFlowRouterParameters(router: ConfigRoot.Router) throws {
+        guard router.backend == "flow" else {
+            throw ConfigError.invalidRouterBackend(router.backend)
         }
-
-        if router.nodesPerLayer < 1 {
-            throw ConfigError.invalidRouterNodesPerLayer(router.nodesPerLayer)
+        let flow = router.flow
+        if flow.T < 1 {
+            throw ConfigError.invalidFlowParameter("T must be ≥ 1 (got \(flow.T))")
         }
-
-        if router.snn.parameterCount < 1 {
-            throw ConfigError.invalidSNNParameterCount(router.snn.parameterCount)
+        if flow.radius <= 0 {
+            throw ConfigError.invalidFlowParameter("radius must be > 0 (got \(flow.radius))")
         }
-
-        if router.snn.decay <= 0 || router.snn.decay >= 1 {
-            throw ConfigError.invalidSNNDecay(router.snn.decay)
+        if flow.seedRadius < 0 || flow.seedRadius >= flow.radius {
+            throw ConfigError.invalidFlowParameter("seed_radius must be in [0, radius)")
         }
-
-        if router.snn.threshold <= 0 || router.snn.threshold > 1 {
-            throw ConfigError.invalidSNNThreshold(router.snn.threshold)
+        // LIF
+        if flow.lif.decay <= 0 || flow.lif.decay >= 1 {
+            throw ConfigError.invalidFlowParameter("lif.decay must be in (0, 1)")
         }
-
-        let dx = router.snn.deltaXRange
-        if dx.min < 1 || dx.max < dx.min {
-            throw ConfigError.invalidSNNDeltaXRange(dx.min, dx.max)
+        if flow.lif.threshold <= 0 || flow.lif.threshold > 1 {
+            throw ConfigError.invalidFlowParameter("lif.threshold must be in (0, 1]")
         }
-
-        let dy = router.snn.deltaYRange
-        if dy.max < dy.min || dy.min > 0 || dy.max < 0 {
-            throw ConfigError.invalidSNNDeltaYRange(dy.min, dy.max)
+        // Dynamics
+        if flow.dynamics.maxSpeed <= 0 {
+            throw ConfigError.invalidFlowParameter("dynamics.max_speed must be > 0")
         }
-
-        if router.snn.dt < 1 {
-            throw ConfigError.invalidSNNTimeStep(router.snn.dt)
+        if flow.dynamics.energyAlpha <= 0 || flow.dynamics.energyAlpha > 1 {
+            throw ConfigError.invalidFlowParameter("dynamics.energy_alpha must be in (0, 1]")
         }
-
-        if router.alpha <= 0 || router.alpha > 1 {
-            throw ConfigError.invalidAlpha(router.alpha)
+        if flow.dynamics.energyFloor < 0 {
+            throw ConfigError.invalidEnergyFloor(flow.dynamics.energyFloor)
         }
-
-        if router.energyFloor < 0 {
-            throw ConfigError.invalidEnergyFloor(router.energyFloor)
+        // Projection
+        if flow.projection.shape.lowercased() != "circle" {
+            throw ConfigError.invalidFlowParameter("projection.shape must be 'circle' in this profile")
+        }
+        if flow.projection.bins != router.energyConstraints.energyBase {
+            throw ConfigError.invalidFlowParameter("projection.bins must equal energy_constraints.energy_base")
         }
     }
 
@@ -179,16 +147,10 @@ public enum ConfigError: LocalizedError {
     case missingLogFilePath
     case failedToCreateLogFile(URL)
     case failedToOpenLogFile(URL)
-    case invalidRouterLayers(Int)
-    case invalidRouterNodesPerLayer(Int)
-    case invalidSNNParameterCount(Int)
-    case invalidSNNDecay(Double)
-    case invalidSNNThreshold(Double)
-    case invalidSNNDeltaXRange(Int, Int)
-    case invalidSNNDeltaYRange(Int, Int)
-    case invalidAlpha(Double)
+    // Flow router validation
+    case invalidRouterBackend(String)
     case invalidEnergyFloor(Double)
-    case invalidSNNTimeStep(Int)
+    case invalidFlowParameter(String)
 
     public var errorDescription: String? {
         switch self {
@@ -214,26 +176,12 @@ public enum ConfigError: LocalizedError {
             return "Failed to create log file at \(url.path)"
         case let .failedToOpenLogFile(url):
             return "Failed to open log file at \(url.path)"
-        case let .invalidRouterLayers(value):
-            return "router.layers must be ≥ 1 (got \(value))"
-        case let .invalidRouterNodesPerLayer(value):
-            return "router.nodes_per_layer must be ≥ 1 (got \(value))"
-        case let .invalidSNNParameterCount(value):
-            return "router.snn.parameter_count must be ≥ 1 (got \(value))"
-        case let .invalidSNNDecay(value):
-            return "router.snn.decay must be in (0, 1) (got \(value))"
-        case let .invalidSNNThreshold(value):
-            return "router.snn.threshold must be in (0, 1] (got \(value))"
-        case let .invalidSNNDeltaXRange(min, max):
-            return "router.snn.delta_x_range must satisfy min ≥ 1 and max ≥ min (got [\(min), \(max)])"
-        case let .invalidSNNDeltaYRange(min, max):
-            return "router.snn.delta_y_range must include 0 and have min ≤ max (got [\(min), \(max)])"
-        case let .invalidAlpha(value):
-            return "router.alpha must be in (0, 1] (got \(value))"
+        case let .invalidRouterBackend(name):
+            return "router.backend must be 'flow' (got \(name))"
         case let .invalidEnergyFloor(value):
-            return "router.energy_floor must be ≥ 0 (got \(value))"
-        case let .invalidSNNTimeStep(value):
-            return "router.snn.dt must be ≥ 1 (got \(value))"
+            return "router.flow.dynamics.energy_floor must be ≥ 0 (got \(value))"
+        case let .invalidFlowParameter(reason):
+            return "Invalid flow router parameter: \(reason)"
         }
     }
 }
@@ -344,63 +292,84 @@ public struct ConfigRoot: Decodable {
     }
 
     public struct Router: Decodable {
-        public let layers: Int
-        public let nodesPerLayer: Int
-        public let snn: SNN
-        public let alpha: Double
-        public let energyFloor: Double
+        public let backend: String
+        public let flow: Flow
         public let energyConstraints: EnergyConstraints
-        public let training: Training
 
         enum CodingKeys: String, CodingKey {
-            case layers
-            case nodesPerLayer = "nodes_per_layer"
-            case snn
-            case alpha
-            case energyFloor = "energy_floor"
+            case backend
+            case flow
             case energyConstraints = "energy_constraints"
-            case training
         }
 
-        public struct SNN: Decodable {
-            public let parameterCount: Int
-            public let decay: Double
-            public let threshold: Double
-            public let resetValue: Double
-            public let deltaXRange: IntRange
-            public let deltaYRange: IntRange
-            public let surrogate: String
-            public let dt: Int
+        public struct Flow: Decodable {
+            public let T: Int
+            public let radius: Double
+            public let seedLayout: String
+            public let seedRadius: Double
+            public let lif: LIF
+            public let dynamics: Dynamics
+            public let interactions: Interactions
+            public let projection: Projection
 
             enum CodingKeys: String, CodingKey {
-                case parameterCount = "parameter_count"
-                case decay
-                case threshold
-                case resetValue = "reset_value"
-                case deltaXRange = "delta_x_range"
-                case deltaYRange = "delta_y_range"
-                case surrogate
-                case dt
+                case T
+                case radius
+                case seedLayout = "seed_layout"
+                case seedRadius = "seed_radius"
+                case lif
+                case dynamics
+                case interactions
+                case projection
             }
 
-            public struct IntRange: Decodable {
-                public let min: Int
-                public let max: Int
+            public struct LIF: Decodable {
+                public let decay: Double
+                public let threshold: Double
+                public let resetValue: Double
+                public let surrogate: String
 
-                public init(min: Int, max: Int) {
-                    self.min = min
-                    self.max = max
+                enum CodingKeys: String, CodingKey {
+                    case decay
+                    case threshold
+                    case resetValue = "reset_value"
+                    case surrogate
                 }
+            }
 
-                public init(from decoder: Decoder) throws {
-                    var container = try decoder.unkeyedContainer()
-                    let min = try container.decode(Int.self)
-                    let max = try container.decode(Int.self)
-                    if !container.isAtEnd {
-                        throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected exactly two elements in range")
-                    }
-                    self.min = min
-                    self.max = max
+            public struct Dynamics: Decodable {
+                public let radialBias: Double
+                public let noiseStdPos: Double
+                public let noiseStdDir: Double
+                public let maxSpeed: Double
+                public let energyAlpha: Double
+                public let energyFloor: Double
+
+                enum CodingKeys: String, CodingKey {
+                    case radialBias = "radial_bias"
+                    case noiseStdPos = "noise_std_pos"
+                    case noiseStdDir = "noise_std_dir"
+                    case maxSpeed = "max_speed"
+                    case energyAlpha = "energy_alpha"
+                    case energyFloor = "energy_floor"
+                }
+            }
+
+            public struct Interactions: Decodable {
+                public let enabled: Bool
+                public let type: String
+                public let strength: Double
+            }
+
+            public struct Projection: Decodable {
+                public let shape: String
+                public let bins: Int
+                public let binSmoothing: Double
+
+                enum CodingKeys: String, CodingKey {
+                    case shape
+                    case bins
+                    case binSmoothing = "bin_smoothing"
                 }
             }
         }
@@ -410,31 +379,6 @@ public struct ConfigRoot: Decodable {
 
             enum CodingKeys: String, CodingKey {
                 case energyBase = "energy_base"
-            }
-        }
-
-        public struct Training: Decodable {
-            public let optimizer: Optimizer
-            public let losses: Losses
-        }
-
-        public struct Optimizer: Decodable {
-            public let type: String
-            public let lr: Double
-            public let beta1: Double
-            public let beta2: Double
-            public let eps: Double
-        }
-
-        public struct Losses: Decodable {
-            public let energyBalanceWeight: Double
-            public let jumpPenaltyWeight: Double
-            public let spikeRateTarget: Double
-
-            enum CodingKeys: String, CodingKey {
-                case energyBalanceWeight = "energy_balance_weight"
-                case jumpPenaltyWeight = "jump_penalty_weight"
-                case spikeRateTarget = "spike_rate_target"
             }
         }
     }

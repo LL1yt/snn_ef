@@ -33,8 +33,18 @@ public struct EnergeticVisualizationView: View {
                 } else if let frame = viewModel.currentFrame {
                     controlsSection
                     metricsSection(frame: frame)
+
+                    if let spikeSummary = frame.spikeSummary {
+                        spikeSummarySection(summary: spikeSummary)
+                    }
+
                     layerEnergySection(frame: frame)
                     packetsSection(frame: frame)
+
+                    if !frame.packetTraces.isEmpty {
+                        packetTracesSection(traces: frame.packetTraces)
+                    }
+
                     outputSection(frame: frame)
                     historySection
                 } else {
@@ -312,6 +322,127 @@ public struct EnergeticVisualizationView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private func spikeSummarySection(summary: EnergyFlowFrame.SpikeSummary) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Spike Statistics")
+                .font(.headline)
+
+            HStack(spacing: 16) {
+                metricCard(
+                    title: "Total spikes",
+                    value: "\(summary.totalSpikes)"
+                )
+                metricCard(
+                    title: "Spike rate",
+                    value: String(format: "%.1f%%", summary.spikeRate * 100)
+                )
+                metricCard(
+                    title: "Active streams",
+                    value: "\(summary.activeStreams)"
+                )
+                metricCard(
+                    title: "Layers with spikes",
+                    value: "\(summary.layersWithSpikes)"
+                )
+            }
+
+            if !summary.spikesPerLayer.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Spikes per layer")
+                        .font(.subheadline)
+
+                    let sortedLayers = summary.spikesPerLayer.sorted { $0.key < $1.key }
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(sortedLayers, id: \.key) { layer, count in
+                            HStack {
+                                Text("Layer \(layer)")
+                                    .font(.caption)
+                                Spacer()
+                                Text("\(count) spikes")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.secondary.opacity(0.08))
+                )
+            }
+        }
+    }
+
+    private func packetTracesSection(traces: [Int: EnergyFlowFrame.PacketTrace]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Packet Traces")
+                .font(.headline)
+
+            let sortedTraces = traces.sorted { $0.key < $1.key }
+            ForEach(sortedTraces.prefix(5), id: \.key) { streamID, trace in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Stream \(streamID)")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Spacer()
+                        Text("\(trace.events.count) steps")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("\(trace.totalSpikes) spikes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let first = trace.firstEvent, let last = trace.lastEvent {
+                        HStack(spacing: 12) {
+                            Text("Start: L\(first.layer) N\(first.node)")
+                                .font(.caption)
+                            Text("End: L\(last.layer) N\(last.node)")
+                                .font(.caption)
+                            Text("Energy: \(String(format: "%.2f", first.energy)) → \(String(format: "%.2f", last.energy))")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.secondary)
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(trace.events.prefix(20)) { event in
+                                VStack(spacing: 2) {
+                                    if event.spike {
+                                        Circle()
+                                            .fill(Color.orange)
+                                            .frame(width: 8, height: 8)
+                                    } else {
+                                        Circle()
+                                            .fill(Color.gray.opacity(0.3))
+                                            .frame(width: 6, height: 6)
+                                    }
+                                    Text("L\(event.layer)")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.secondary.opacity(0.4), lineWidth: 0.5)
+                )
+            }
+
+            if traces.count > 5 {
+                Text("... and \(traces.count - 5) more streams")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }

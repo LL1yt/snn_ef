@@ -122,32 +122,34 @@ final class CLIntegrationTests: XCTestCase {
           crc: "crc32"
           gpu_batch: 128
         router:
-          layers: 4
-          nodes_per_layer: 64
-          snn:
-            parameter_count: 512
-            decay: 0.9
-            threshold: 0.7
-            reset_value: 0.0
-            delta_x_range: [1, 3]
-            delta_y_range: [-32, 32]
-            surrogate: "fast_sigmoid"
-            dt: 1
-          alpha: 0.9
-          energy_floor: 1.0e-5
+          backend: "flow"
+          flow:
+            T: 3
+            radius: 5.0
+            seed_layout: "ring"
+            seed_radius: 1.0
+            lif:
+              decay: 0.9
+              threshold: 0.7
+              reset_value: 0.0
+              surrogate: "fast_sigmoid"
+            dynamics:
+              radial_bias: 0.1
+              noise_std_pos: 0.0
+              noise_std_dir: 0.0
+              max_speed: 1.0
+              energy_alpha: 0.9
+              energy_floor: 1.0e-5
+            interactions:
+              enabled: false
+              type: "none"
+              strength: 0.0
+            projection:
+              shape: "circle"
+              bins: 256
+              bin_smoothing: 0.0
           energy_constraints:
             energy_base: 256
-          training:
-            optimizer:
-              type: "adam"
-              lr: 1.0e-3
-              beta1: 0.9
-              beta2: 0.999
-              eps: 1.0e-8
-            losses:
-              energy_balance_weight: 1.0
-              jump_penalty_weight: 1.0e-2
-              spike_rate_target: 0.1
         ui:
           enabled: true
           refresh_hz: 30

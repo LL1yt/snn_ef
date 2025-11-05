@@ -1,3 +1,4 @@
+> DEPRECATED: Legacy grid-based SNN summary. See Docs/migration_to_flow_router.md for current FlowRouter backend.
 # Фаза 2: EnergeticRouter SNN (CPU-first) — краткая сводка
 
 ## Обзор

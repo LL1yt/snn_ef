@@ -171,32 +171,34 @@ final class CapsuleCoreTests: XCTestCase {
           crc: "crc32"
           gpu_batch: 512
         router:
-          layers: 10
-          nodes_per_layer: 1024
-          snn:
-            parameter_count: 512
-            decay: 0.92
-            threshold: 0.8
-            reset_value: 0.0
-            delta_x_range: [1, 4]
-            delta_y_range: [-128, 128]
-            surrogate: "fast_sigmoid"
-            dt: 1
-          alpha: 0.9
-          energy_floor: 1.0e-5
+          backend: "flow"
+          flow:
+            T: 12
+            radius: 10.0
+            seed_layout: "ring"
+            seed_radius: 1.0
+            lif:
+              decay: 0.92
+              threshold: 0.8
+              reset_value: 0.0
+              surrogate: "fast_sigmoid"
+            dynamics:
+              radial_bias: 0.15
+              noise_std_pos: 0.01
+              noise_std_dir: 0.05
+              max_speed: 1.0
+              energy_alpha: 0.9
+              energy_floor: 1.0e-5
+            interactions:
+              enabled: false
+              type: "none"
+              strength: 0.0
+            projection:
+              shape: "circle"
+              bins: 256
+              bin_smoothing: 0.0
           energy_constraints:
             energy_base: 256
-          training:
-            optimizer:
-              type: "adam"
-              lr: 1.0e-3
-              beta1: 0.9
-              beta2: 0.999
-              eps: 1.0e-8
-            losses:
-              energy_balance_weight: 1.0
-              jump_penalty_weight: 1.0e-2
-              spike_rate_target: 0.1
         ui:
           enabled: true
           refresh_hz: 30

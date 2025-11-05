@@ -13,11 +13,8 @@ public struct EnergeticUIPreview: View {
 
     public init(snapshot: ConfigSnapshot? = try? ConfigCenter.load()) {
         self.snapshot = snapshot
-        if let root = snapshot?.root, let config = try? RouterFactory.createFrom(root.router) {
-            self.routerConfig = config
-        } else {
-            self.routerConfig = RouterFactory.createTestConfig()
-        }
+        // Flow backend: RouterFactory removed; use stub config for preview
+        self.routerConfig = EnergeticUIPreview.makeStubConfig()
         self.samplePackets = EnergeticUIPreview.makeSamplePackets(config: routerConfig)
 
         if let root = snapshot?.root {
@@ -35,14 +32,13 @@ public struct EnergeticUIPreview: View {
                 let router = snapshot.root.router
                 Text("Router Dashboard")
                     .font(.title2)
-                LabeledContent("Layers") { Text("\(router.layers)") }
-                LabeledContent("Nodes / layer") { Text("\(router.nodesPerLayer)") }
-                LabeledContent("SNN Params") { Text("\(router.snn.parameterCount)") }
-                LabeledContent("Surrogate") { Text(router.snn.surrogate) }
-                LabeledContent("Δx range") { Text("[\(router.snn.deltaXRange.min), \(router.snn.deltaXRange.max)]") }
-                LabeledContent("Δy range") { Text("[\(router.snn.deltaYRange.min), \(router.snn.deltaYRange.max)]") }
-                LabeledContent("Alpha") { Text(String(format: "%.3f", router.alpha)) }
-                LabeledContent("Energy floor") { Text(String(format: "%.2e", router.energyFloor)) }
+                LabeledContent("Backend") { Text(router.backend) }
+                LabeledContent("T (steps)") { Text("\(router.flow.T)") }
+                LabeledContent("Radius") { Text(String(format: "%.2f", router.flow.radius)) }
+                LabeledContent("Bins") { Text("\(router.flow.projection.bins)") }
+                LabeledContent("Surrogate") { Text(router.flow.lif.surrogate) }
+                LabeledContent("Energy α") { Text(String(format: "%.3f", router.flow.dynamics.energyAlpha)) }
+                LabeledContent("Energy floor") { Text(String(format: "%.2e", router.flow.dynamics.energyFloor)) }
 
                 if let lastRouterEvent {
                     Text("Last router event: \(format(date: lastRouterEvent))")
@@ -55,7 +51,7 @@ public struct EnergeticUIPreview: View {
                 }
 
                 if let info = loadedSnapshot {
-                    Text("Snapshot profile: \(info.profile) at \(format(date: info.generatedAt))")
+                    Text("Snapshot profile: \\(info.profile) at \\(format(date: info.generatedAt))")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
@@ -67,11 +63,24 @@ public struct EnergeticUIPreview: View {
                         loadedSnapshot = PipelineSnapshotExporter.load(from: root)
                     }
                     Button("Export Snapshot") {
-                        if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
+                        if let flow = loadedSnapshot?.flow,
+                           let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot, flow: flow) {
+                            loadedSnapshot = exported
+                            lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.step")
+                        } else if let exported: ConfigPipelineSnapshot = try? PipelineSnapshotExporter.export(snapshot: snapshot) {
                             loadedSnapshot = exported
                             lastRouterEvent = LoggingHub.lastEventTimestamp(for: "router.step")
                         }
                     }
+                }
+
+                if let flow = loadedSnapshot?.flow {
+                    FlowRingHistogramView(flow: flow)
+                        .frame(height: 280)
+                } else {
+                    Text("No flow snapshot yet — run CLI export to generate one.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
             } else {
                 Text("Config snapshot not available")
@@ -112,5 +121,26 @@ public struct EnergeticUIPreview: View {
             EnergyPacket(streamID: 2, x: 0, y: midY, energy: 96.0, time: 0),
             EnergyPacket(streamID: 3, x: 0, y: threeQuarterY, energy: 64.0, time: 0)
         ]
+    }
+
+    private static func makeStubConfig() -> RouterConfig {
+        let snn = SNNConfig(
+            parameterCount: 128,
+            decay: 0.9,
+            threshold: 0.5,
+            resetValue: 0.0,
+            deltaXRange: 1...1,
+            deltaYRange: 0...0,
+            surrogate: "fast_sigmoid",
+            dt: 1
+        )
+        return RouterConfig(
+            layers: 1,
+            nodesPerLayer: 1,
+            snn: snn,
+            alpha: 1.0,
+            energyFloor: 0.0,
+            energyBase: 256
+        )
     }
 }

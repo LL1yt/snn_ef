@@ -1,7 +1,4 @@
-import Foundation
-
-/// Factory for creating SNN router components and validating configurations.
-public struct RouterFactory {
+// Removed: legacy RouterFactory and Grid validation; superseded by FlowRouter.
     
     // MARK: - Public API
     
@@ -196,31 +193,10 @@ extension RouterFactory {
 import SharedInfrastructure
 
 extension RouterFactory {
-    /// Creates RouterConfig from ConfigCenter's ConfigRoot.Router.
-    ///
-    /// - Parameter routerConfig: Router configuration from YAML
-    /// - Returns: Validated RouterConfig
-    /// - Throws: `RouterError.invalidConfiguration` if validation fails
+    /// Creates RouterConfig from ConfigCenter's ConfigRoot.Router (legacy grid backend unsupported).
+    /// For flow backend, EnergeticCore grid router is deprecated and cannot be constructed.
     public static func createFrom(_ routerConfig: ConfigRoot.Router) throws -> RouterConfig {
-        let snn = SNNConfig(
-            parameterCount: routerConfig.snn.parameterCount,
-            decay: Float(routerConfig.snn.decay),
-            threshold: Float(routerConfig.snn.threshold),
-            resetValue: Float(routerConfig.snn.resetValue),
-            deltaXRange: routerConfig.snn.deltaXRange.min...routerConfig.snn.deltaXRange.max,
-            deltaYRange: routerConfig.snn.deltaYRange.min...routerConfig.snn.deltaYRange.max,
-            surrogate: routerConfig.snn.surrogate,
-            dt: routerConfig.snn.dt
-        )
-        
-        return try createConfig(
-            layers: routerConfig.layers,
-            nodesPerLayer: routerConfig.nodesPerLayer,
-            snn: snn,
-            alpha: Float(routerConfig.alpha),
-            energyFloor: Float(routerConfig.energyFloor),
-            energyBase: routerConfig.energyConstraints.energyBase
-        )
+        throw RouterError.invalidConfiguration("ConfigCenter router.backend=\(routerConfig.backend) is not supported by legacy grid RouterFactory. Use FlowRouter path.")
     }
 }
 #endif

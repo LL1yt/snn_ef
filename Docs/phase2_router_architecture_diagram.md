@@ -1,3 +1,4 @@
+> DEPRECATED: Legacy grid architecture; superseded by FlowRouter. See Docs/migration_to_flow_router.md.
 # EnergeticRouter SNN — архитектурная схема
 
 ---
