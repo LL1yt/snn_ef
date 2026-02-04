@@ -106,6 +106,9 @@ enum Validation {
         if flow.projection.bins != router.energyConstraints.energyBase {
             throw ConfigError.invalidFlowParameter("projection.bins must equal energy_constraints.energy_base")
         }
+        if flow.projection.finalWeightPower <= 0 {
+            throw ConfigError.invalidFlowParameter("projection.final_weight_power must be > 0")
+        }
     }
 
     private static func ensureLearningParameters(router: ConfigRoot.Router) throws {
@@ -495,11 +498,28 @@ public struct ConfigRoot: Decodable {
                 public let shape: String
                 public let bins: Int
                 public let binSmoothing: Double
+                public let finalWeightPower: Double
 
                 enum CodingKeys: String, CodingKey {
                     case shape
                     case bins
                     case binSmoothing = "bin_smoothing"
+                    case finalWeightPower = "final_weight_power"
+                }
+
+                public init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    shape = try container.decode(String.self, forKey: .shape)
+                    bins = try container.decode(Int.self, forKey: .bins)
+                    binSmoothing = try container.decodeIfPresent(Double.self, forKey: .binSmoothing) ?? 0.0
+                    finalWeightPower = try container.decodeIfPresent(Double.self, forKey: .finalWeightPower) ?? 1.0
+                }
+
+                public init(shape: String, bins: Int, binSmoothing: Double, finalWeightPower: Double = 1.0) {
+                    self.shape = shape
+                    self.bins = bins
+                    self.binSmoothing = binSmoothing
+                    self.finalWeightPower = finalWeightPower
                 }
             }
 

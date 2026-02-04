@@ -163,10 +163,10 @@ public final class FlowRouter {
             step(state: &state, gains: gains)
             t += 1
         }
-        // Final projection at T for remaining particles
+        // Final projection at T for remaining particles (weighted by radius)
         if t >= cfg.T {
-            for var p in state.particles {
-                _ = FlowProjector.projectIfNeeded(&p, cfg: cfg, outputs: &state.outputs, gains: gains)
+            for p in state.particles {
+                FlowProjector.projectFinal(p, cfg: cfg, outputs: &state.outputs, gains: gains)
             }
             state.particles.removeAll(keepingCapacity: false)
         }

@@ -65,7 +65,12 @@ public enum LoggingHub {
     }
 
     public static func emit(process alias: String, level: LogLevel, message: String, timestamp: Date = .init()) {
-        let processID = (try? ProcessRegistry.resolve(alias)) ?? alias
+        let processID: String
+        do {
+            processID = try ProcessRegistry.resolve(alias)
+        } catch {
+            preconditionFailure("Unknown process alias '\(alias)'. Add it to process_registry in your config or use the canonical process_id.")
+        }
         emit(LogEvent(timestamp: timestamp, processID: processID, level: level, message: message))
     }
 

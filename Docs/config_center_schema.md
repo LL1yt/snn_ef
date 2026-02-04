@@ -54,6 +54,7 @@ logging:
 ```yaml
 process_registry:
   capsule.encode: "capsule.encode"
+  capsule.decode: "capsule.decode"
   capsule.base_b: "capsule.base_b"
   capsule.to_energies: "capsule.to_energies"
   capsule.from_energies: "capsule.from_energies"
@@ -144,6 +145,7 @@ router:
       shape: "circle"             # фиксировано в этом плане
       bins: 256                   # = energy_constraints.energy_base
       bin_smoothing: 0.0          # опционально
+      final_weight_power: 1.0     # >0, вес финальной проекции по близости к границе
     learning:
       enabled: false
       epochs: 50
@@ -199,6 +201,7 @@ Constraints:
 - `lif.decay ∈ (0,1)`, `lif.threshold ∈ (0,1]`.
 - `dynamics.spike_kick ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`.
 - `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.
+- `projection.final_weight_power > 0`.
 - `learning.dataset.local_path` required when dataset enabled.
 - `learning.dataset.valid_path` optional.
 - `learning.negative.weight ≥ 0`, `learning.negative.margin ≥ 0`.

@@ -10,6 +10,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             bins: 8,
             seedLayout: "ring",
             seedRadius: 1.0,
+            finalWeightPower: 1.0,
             lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
             dynamics: .init(radialBias: 0.15, spikeKick: 0.5, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
         )
@@ -90,6 +91,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             bins: 4,
             seedLayout: "ring",
             seedRadius: 0.5,
+            finalWeightPower: 1.0,
             lif: .init(decay: 0.9, threshold: 0.7, resetValue: 0.0, surrogate: "fast_sigmoid"),
             dynamics: .init(radialBias: 0.1, spikeKick: 0.4, noiseStdPos: 0.01, noiseStdDir: 0.03, maxSpeed: 0.8, energyAlpha: 0.95, energyFloor: 1e-5)
         )
@@ -149,6 +151,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             bins: 4,
             seedLayout: "ring",
             seedRadius: 0.5,
+            finalWeightPower: 1.0,
             lif: .init(decay: 0.9, threshold: 0.75, resetValue: 0.0, surrogate: "fast_sigmoid"),
             dynamics: .init(radialBias: 0.12, spikeKick: 0.45, noiseStdPos: 0.01, noiseStdDir: 0.04, maxSpeed: 0.9, energyAlpha: 0.95, energyFloor: 1e-5)
         )
@@ -226,6 +229,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             bins: 4,
             seedLayout: "ring",
             seedRadius: 0.8,
+            finalWeightPower: 1.0,
             lif: .init(decay: 0.88, threshold: 0.95, resetValue: 0.0, surrogate: "fast_sigmoid"),  // High threshold
             dynamics: .init(radialBias: 0.1, spikeKick: 0.5, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
         )
@@ -280,6 +284,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             bins: 4,
             seedLayout: "ring",
             seedRadius: 0.49,
+            finalWeightPower: 1.0,
             lif: .init(decay: 0.9, threshold: 0.6, resetValue: 0.0, surrogate: "fast_sigmoid"),
             dynamics: .init(radialBias: 0.0, spikeKick: 0.0, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 1.0, energyFloor: 0.0)
         )

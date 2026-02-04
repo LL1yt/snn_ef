@@ -27,6 +27,17 @@ public enum FlowProjector {
         }
         return false
     }
+    /// Projects particle to a bin with weight based on distance to radius (final projection at T).
+    @inline(__always)
+    public static func projectFinal(_ p: FlowParticle, cfg: FlowConfig, outputs: inout [Float], gains: [Float]? = nil) {
+        let theta = atan2(p.pos.y, p.pos.x)
+        let b = binIndex(theta: theta, bins: cfg.bins)
+        let g = gain(for: b, bins: cfg.bins, gains: gains)
+        let r = length(p.pos)
+        let ratio = max(0, min(r / max(cfg.radius, 1e-6), 1))
+        let weight = pow(ratio, cfg.finalWeightPower)
+        outputs[b] += g * max(0, p.energy) * weight
+    }
 
     @inline(__always)
     public static func gain(for bin: Int, bins: Int, gains: [Float]?) -> Float {

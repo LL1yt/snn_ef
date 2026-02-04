@@ -57,7 +57,12 @@ struct EnergeticCLI {
         let flowCfg = FlowConfig.from(snapshot.root.router)
         let exampleText = snapshot.root.capsule.pipelineExampleText.isEmpty ? "Hello, Energetic Router!" : snapshot.root.capsule.pipelineExampleText
         let inputData = Data(exampleText.utf8)
-        let (batch, _) = try! CapsuleBridge.makeEnergies(from: inputData, config: snapshot.root.capsule)
+        let batch: CapsuleBridge.EnergiesBatch
+        do {
+            (batch, _) = try CapsuleBridge.makeEnergies(from: inputData, config: snapshot.root.capsule)
+        } catch {
+            Diagnostics.fail("Failed to encode example text: \(error.localizedDescription)", processID: processID)
+        }
         let energiesU16 = batch.energies.map { UInt16($0) }
         let bins = FlowBridgeSNN.simulate(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
 

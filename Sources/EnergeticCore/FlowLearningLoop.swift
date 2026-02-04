@@ -286,7 +286,7 @@ public final class FlowLearningLoop {
         }
 
         // Compute metrics
-        let completionRate = Float(allCompletions.count) / Float(initialParticleCount)
+        let completionRate = initialParticleCount > 0 ? Float(allCompletions.count) / Float(initialParticleCount) : 0
         let meanRadialMiss = computeMeanRadialMiss(completions: allCompletions, radius: flowConfig.radius)
         let nonzeroBins = yHat.filter { $0 > 0 }.count
         let yHatStats = computeBinStatistics(yHat)
@@ -423,6 +423,7 @@ public final class FlowLearningLoop {
             bins: flowConfig.bins,
             seedLayout: flowConfig.seedLayout,
             seedRadius: flowConfig.seedRadius,
+            finalWeightPower: flowConfig.finalWeightPower,
             lif: updatedLIF,
             dynamics: updatedDynamics
         )

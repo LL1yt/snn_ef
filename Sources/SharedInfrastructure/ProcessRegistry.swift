@@ -4,6 +4,7 @@ public enum ProcessRegistry {
     private static let queue = DispatchQueue(label: "ProcessRegistry.queue")
     private static let defaultMapping: [String: String] = [
         "capsule.encode": "capsule.encode",
+        "capsule.decode": "capsule.decode",
         "capsule.base_b": "capsule.base_b",
         "capsule.to_energies": "capsule.to_energies",
         "capsule.from_energies": "capsule.from_energies",

@@ -6,6 +6,7 @@ public struct FlowConfig: Sendable, Equatable {
     public let bins: Int
     public let seedLayout: String   // "ring" | "disk"
     public let seedRadius: Float
+    public let finalWeightPower: Float
     public let lif: LIF
     public let dynamics: Dynamics
 
@@ -41,12 +42,13 @@ public struct FlowConfig: Sendable, Equatable {
         }
     }
 
-    public init(T: Int, radius: Float, bins: Int, seedLayout: String, seedRadius: Float, lif: LIF, dynamics: Dynamics) {
+    public init(T: Int, radius: Float, bins: Int, seedLayout: String, seedRadius: Float, finalWeightPower: Float, lif: LIF, dynamics: Dynamics) {
         self.T = T
         self.radius = radius
         self.bins = bins
         self.seedLayout = seedLayout
         self.seedRadius = seedRadius
+        self.finalWeightPower = finalWeightPower
         self.lif = lif
         self.dynamics = dynamics
     }
@@ -113,6 +115,7 @@ extension FlowConfig {
             bins: f.projection.bins,
             seedLayout: f.seedLayout,
             seedRadius: Float(f.seedRadius),
+            finalWeightPower: Float(f.projection.finalWeightPower),
             lif: .init(
                 decay: Float(f.lif.decay),
                 threshold: Float(f.lif.threshold),
