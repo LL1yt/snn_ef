@@ -119,6 +119,18 @@ enum Validation {
         if learning.targetSpikeRate < 0 || learning.targetSpikeRate > 1 {
             throw ConfigError.invalidLearningParameter("target_spike_rate must be in [0, 1] (got \(learning.targetSpikeRate))")
         }
+        if learning.dataset.localPath.isEmpty {
+            throw ConfigError.invalidLearningParameter("dataset.local_path must be non-empty")
+        }
+        if learning.dataset.trainLimit < 0 || learning.dataset.validLimit < 0 {
+            throw ConfigError.invalidLearningParameter("dataset limits must be ≥ 0")
+        }
+        if learning.negative.weight < 0 {
+            throw ConfigError.invalidLearningParameter("negative.weight must be ≥ 0")
+        }
+        if learning.negative.margin < 0 {
+            throw ConfigError.invalidLearningParameter("negative.margin must be ≥ 0")
+        }
         // Learning rates
         if learning.lr.gain < 0 {
             throw ConfigError.invalidLearningParameter("lr.gain must be ≥ 0 (got \(learning.lr.gain))")
@@ -459,6 +471,8 @@ public struct ConfigRoot: Decodable {
                 public let epochs: Int
                 public let stepsPerEpoch: Int
                 public let targetSpikeRate: Double
+                public let dataset: Dataset
+                public let negative: Negative
                 public let lr: LearningRates
                 public let weights: LossWeights
                 public let bounds: ParameterBounds
@@ -470,11 +484,41 @@ public struct ConfigRoot: Decodable {
                     case epochs
                     case stepsPerEpoch = "steps_per_epoch"
                     case targetSpikeRate = "target_spike_rate"
+                    case dataset
+                    case negative
                     case lr
                     case weights
                     case bounds
                     case aggregator
                     case targets
+                }
+
+                public struct Dataset: Decodable {
+                    public let name: String
+                    public let localPath: String
+                    public let validPath: String?
+                    public let cacheMode: String
+                    public let trainLimit: Int
+                    public let validLimit: Int
+                    public let shuffle: Bool
+                    public let seed: Int
+
+                    enum CodingKeys: String, CodingKey {
+                        case name
+                        case localPath = "local_path"
+                        case validPath = "valid_path"
+                        case cacheMode = "cache_mode"
+                        case trainLimit = "train_limit"
+                        case validLimit = "valid_limit"
+                        case shuffle
+                        case seed
+                    }
+                }
+
+                public struct Negative: Decodable {
+                    public let enabled: Bool
+                    public let weight: Double
+                    public let margin: Double
                 }
 
                 public struct LearningRates: Decodable {

@@ -159,6 +159,17 @@ final class LoggingHubTests: XCTestCase {
                     epochs: 1,
                     stepsPerEpoch: 1,
                     targetSpikeRate: 0.15,
+                    dataset: .init(
+                        name: "logiqa",
+                        localPath: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl",
+                        validPath: "Artifacts/Datasets/LogiQA/prepared/prepared_valid.jsonl",
+                        cacheMode: "prepared",
+                        trainLimit: 16,
+                        validLimit: 16,
+                        shuffle: true,
+                        seed: 1
+                    ),
+                    negative: .init(enabled: false, weight: 0.0, margin: 0.0),
                     lr: .init(gain: 0.001, lif: 0.01, dynamics: 0.005),
                     weights: .init(spike: 0.1, boundary: 0.05),
                     bounds: .init(theta: [0.5, 1.0], radialBias: [0.0, 0.5], spikeKick: [0.0, 1.0], gain: [0.1, 2.0]),

@@ -140,6 +140,19 @@ final class SharedInfrastructureTests: XCTestCase {
           epochs: 50
           steps_per_epoch: 12
           target_spike_rate: 0.15
+          dataset:
+            name: "logiqa"
+            local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
+            valid_path: "Artifacts/Datasets/LogiQA/prepared/prepared_valid.jsonl"
+            cache_mode: "prepared"
+            train_limit: 16
+            valid_limit: 16
+            shuffle: true
+            seed: 1
+          negative:
+            enabled: false
+            weight: 0.0
+            margin: 0.0
           lr:
             gain: 0.001
             lif: 0.01

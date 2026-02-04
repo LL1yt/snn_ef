@@ -156,6 +156,19 @@ final class CLIntegrationTests: XCTestCase {
               epochs: 1
               steps_per_epoch: 1
               target_spike_rate: 0.15
+              dataset:
+                name: "logiqa"
+                local_path: "\(base.appendingPathComponent(\"prepared_train.jsonl\").path)"
+                valid_path: "\(base.appendingPathComponent(\"prepared_valid.jsonl\").path)"
+                cache_mode: "prepared"
+                train_limit: 16
+                valid_limit: 16
+                shuffle: true
+                seed: 1
+              negative:
+                enabled: false
+                weight: 0.0
+                margin: 0.0
               lr:
                 gain: 0.001
                 lif: 0.01

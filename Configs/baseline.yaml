@@ -84,6 +84,19 @@ router:
       epochs: 50
       steps_per_epoch: 12
       target_spike_rate: 0.15
+      dataset:
+        name: "logiqa"
+        local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
+        valid_path: "Artifacts/Datasets/LogiQA/prepared/prepared_valid.jsonl"
+        cache_mode: "prepared"
+        train_limit: 256
+        valid_limit: 64
+        shuffle: true
+        seed: 42
+      negative:
+        enabled: true
+        weight: 0.2
+        margin: 0.5
       lr:
         gain: 0.001
         lif: 0.01

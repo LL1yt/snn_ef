@@ -143,6 +143,46 @@ router:
       shape: "circle"             # фиксировано в этом плане
       bins: 256                   # = energy_constraints.energy_base
       bin_smoothing: 0.0          # опционально
+    learning:
+      enabled: false
+      epochs: 50
+      steps_per_epoch: 12
+      target_spike_rate: 0.15
+      dataset:
+        name: "logiqa"
+        local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
+        valid_path: "Artifacts/Datasets/LogiQA/prepared/prepared_valid.jsonl"
+        cache_mode: "prepared"    # raw | prepared | precomputed
+        train_limit: 256
+        valid_limit: 64
+        shuffle: true
+        seed: 42
+      negative:
+        enabled: true
+        weight: 0.2
+        margin: 0.5
+      lr:
+        gain: 0.001
+        lif: 0.01
+        dynamics: 0.005
+      weights:
+        spike: 0.1
+        boundary: 0.05
+      bounds:
+        theta: [0.5, 1.0]
+        radial_bias: [0.0, 0.5]
+        spike_kick: [0.0, 1.0]
+        gain: [0.1, 2.0]
+      aggregator:
+        sigma_r: 2.5
+        sigma_e: 10.0
+        alpha: 1.0
+        beta: 1.0
+        gamma: 0.5
+        tau: 1.0
+      targets:
+        type: "capsule-digits"
+        path: null
   energy_constraints:
     energy_base: 256              # должно совпадать с capsule.base
 ```
@@ -154,6 +194,9 @@ Constraints:
 - `lif.decay ∈ (0,1)`, `lif.threshold ∈ (0,1]`.
 - `dynamics.spike_kick ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`.
 - `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.
+- `learning.dataset.local_path` required when dataset enabled.
+- `learning.dataset.valid_path` optional.
+- `learning.negative.weight ≥ 0`, `learning.negative.margin ≥ 0`.
 
 ---
 
@@ -257,6 +300,46 @@ router:
       shape: "circle"
       bins: 256
       bin_smoothing: 0.0
+    learning:
+      enabled: false
+      epochs: 50
+      steps_per_epoch: 12
+      target_spike_rate: 0.15
+      dataset:
+        name: "logiqa"
+        local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
+        valid_path: "Artifacts/Datasets/LogiQA/prepared/prepared_valid.jsonl"
+        cache_mode: "prepared"
+        train_limit: 256
+        valid_limit: 64
+        shuffle: true
+        seed: 42
+      negative:
+        enabled: true
+        weight: 0.2
+        margin: 0.5
+      lr:
+        gain: 0.001
+        lif: 0.01
+        dynamics: 0.005
+      weights:
+        spike: 0.1
+        boundary: 0.05
+      bounds:
+        theta: [0.5, 1.0]
+        radial_bias: [0.0, 0.5]
+        spike_kick: [0.0, 1.0]
+        gain: [0.1, 2.0]
+      aggregator:
+        sigma_r: 2.5
+        sigma_e: 10.0
+        alpha: 1.0
+        beta: 1.0
+        gamma: 0.5
+        tau: 1.0
+      targets:
+        type: "capsule-digits"
+        path: null
   energy_constraints:
     energy_base: 256
 
