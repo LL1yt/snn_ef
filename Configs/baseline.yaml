@@ -13,7 +13,7 @@ logging:
     capsule.encode: "debug"
     router.spike: "trace"
     ui.pipeline: "info"
-    trainer.loop: "warn"
+    trainer.loop: "info"
     trainer.eval: "info"
   timestamp_kind: "relative"
 
