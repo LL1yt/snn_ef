@@ -122,6 +122,9 @@ enum Validation {
         if learning.evalEvery < 1 {
             throw ConfigError.invalidLearningParameter("eval_every must be ≥ 1 (got \(learning.evalEvery))")
         }
+        if learning.logEvery < 1 {
+            throw ConfigError.invalidLearningParameter("log_every must be ≥ 1 (got \(learning.logEvery))")
+        }
         if learning.dataset.localPath.isEmpty {
             throw ConfigError.invalidLearningParameter("dataset.local_path must be non-empty")
         }
@@ -476,6 +479,7 @@ public struct ConfigRoot: Decodable {
                 public let targetSpikeRate: Double
                 public let evalEvery: Int
                 public let logSilence: Bool
+                public let logEvery: Int
                 public let dataset: Dataset
                 public let negative: Negative
                 public let lr: LearningRates
@@ -491,6 +495,7 @@ public struct ConfigRoot: Decodable {
                     case targetSpikeRate = "target_spike_rate"
                     case evalEvery = "eval_every"
                     case logSilence = "log_silence"
+                    case logEvery = "log_every"
                     case dataset
                     case negative
                     case lr
@@ -608,13 +613,14 @@ public struct ConfigRoot: Decodable {
                     }
                 }
 
-                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
+                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, logEvery: Int, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
                     self.enabled = enabled
                     self.epochs = epochs
                     self.stepsPerEpoch = stepsPerEpoch
                     self.targetSpikeRate = targetSpikeRate
                     self.evalEvery = evalEvery
                     self.logSilence = logSilence
+                    self.logEvery = logEvery
                     self.dataset = dataset
                     self.negative = negative
                     self.lr = lr

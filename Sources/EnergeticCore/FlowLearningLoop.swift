@@ -11,6 +11,7 @@ public struct LearningConfig {
     public let epochs: Int
     public let stepsPerEpoch: Int
     public let targetSpikeRate: Float
+    public let logEvery: Int
     public let learningRates: LearningRates
     public let lossWeights: LossWeights
     public let negative: NegativeConfig
@@ -22,6 +23,7 @@ public struct LearningConfig {
         epochs: Int,
         stepsPerEpoch: Int,
         targetSpikeRate: Float,
+        logEvery: Int,
         learningRates: LearningRates,
         lossWeights: LossWeights,
         negative: NegativeConfig = .disabled,
@@ -32,6 +34,7 @@ public struct LearningConfig {
         self.epochs = epochs
         self.stepsPerEpoch = stepsPerEpoch
         self.targetSpikeRate = targetSpikeRate
+        self.logEvery = logEvery
         self.learningRates = learningRates
         self.lossWeights = lossWeights
         self.negative = negative
@@ -97,6 +100,7 @@ public struct LearningConfig {
             epochs: learning.epochs,
             stepsPerEpoch: learning.stepsPerEpoch,
             targetSpikeRate: Float(learning.targetSpikeRate),
+            logEvery: learning.logEvery,
             learningRates: .init(
                 gain: Float(learning.lr.gain),
                 lif: Float(learning.lr.lif),
@@ -363,7 +367,7 @@ public final class FlowLearningLoop {
         )
 
 #if canImport(SharedInfrastructure)
-        if emitLog {
+        if emitLog && (epoch % max(1, learningConfig.logEvery) == 0) {
             let traces = trackedIDs.compactMap { id -> LearningLogPayload.Trace? in
                 guard let steps = traceSteps[id] else { return nil }
                 return LearningLogPayload.Trace(id: id, steps: steps)

@@ -150,6 +150,7 @@ router:
       target_spike_rate: 0.15
       eval_every: 30              # валидация каждые N эпох (>=1)
       log_silence: true           # не печатать прогресс в stdout (только файл)
+      log_every: 10               # логировать метрики каждые N эпох (>=1)
       dataset:
         name: "logiqa"
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
@@ -200,6 +201,7 @@ Constraints:
 - `learning.dataset.valid_path` optional.
 - `learning.negative.weight ≥ 0`, `learning.negative.margin ≥ 0`.
 - `learning.eval_every ≥ 1`.
+- `learning.log_every ≥ 1`.
 
 ---
 
@@ -308,6 +310,9 @@ router:
       epochs: 50
       steps_per_epoch: 12
       target_spike_rate: 0.15
+      eval_every: 30
+      log_silence: true
+      log_every: 30
       dataset:
         name: "logiqa"
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"

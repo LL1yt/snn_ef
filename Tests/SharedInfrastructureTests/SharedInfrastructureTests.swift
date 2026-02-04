@@ -142,6 +142,7 @@ final class SharedInfrastructureTests: XCTestCase {
           target_spike_rate: 0.15
           eval_every: 30
           log_silence: true
+          log_every: 30
           dataset:
             name: "logiqa"
             local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"

@@ -209,9 +209,17 @@ struct EnergeticCLI {
 
         // Training loop
         let evalEvery = max(1, snapshot.root.router.flow.learning.evalEvery)
-        if snapshot.root.router.flow.learning.logSilence {
+        let logSilence = snapshot.root.router.flow.learning.logSilence
+        let logEvery = max(1, snapshot.root.router.flow.learning.logEvery)
+        if logSilence {
             LoggingHub.setSuppressStdout(true)
         }
+        var trainCache: [String: EncodedSample] = [:]
+        var validCache: [String: EncodedSample] = [:]
+        if !validSamples.isEmpty {
+            validCache = buildCache(samples: validSamples, capsuleConfig: snapshot.root.capsule, bins: flowCfg.bins, processID: processID)
+        }
+
         for epoch in 0..<epochs {
             let pair = makeTrainingPair(
                 index: epoch,
@@ -220,7 +228,8 @@ struct EnergeticCLI {
                 fallbackAnswer: fallbackAnswer,
                 capsuleConfig: snapshot.root.capsule,
                 bins: flowCfg.bins,
-                processID: processID
+                processID: processID,
+                cache: &trainCache
             )
             let metrics = learningLoop.runEpoch(
                 epoch: epoch,
@@ -232,14 +241,16 @@ struct EnergeticCLI {
             )
             allMetrics.append(metrics)
 
-            // Log progress
-            LoggingHub.emit(
-                process: "trainer.loop",
-                level: .info,
-                message: "Epoch \(epoch): L=\(String(format: "%.4f", metrics.totalLoss)) L_bins=\(String(format: "%.4f", metrics.binLoss)) L_neg=\(String(format: "%.4f", metrics.negativeLoss)) L_spike=\(String(format: "%.4f", metrics.spikeLoss)) L_boundary=\(String(format: "%.4f", metrics.boundaryLoss)) spike_rate=\(String(format: "%.3f", metrics.spikeRate)) completion=\(String(format: "%.3f", metrics.completionRate)) opt_acc=\(String(format: "%.3f", metrics.optionAccuracy ?? -1))"
-            )
-
-            print("Epoch \(epoch)/\(epochs): L=\(String(format: "%.4f", metrics.totalLoss)) bins=\(String(format: "%.4f", metrics.binLoss)) neg=\(String(format: "%.4f", metrics.negativeLoss)) spike=\(String(format: "%.4f", metrics.spikeLoss)) boundary=\(String(format: "%.4f", metrics.boundaryLoss)) opt_acc=\(String(format: "%.3f", metrics.optionAccuracy ?? -1))")
+            if epoch % logEvery == 0 {
+                LoggingHub.emit(
+                    process: "trainer.loop",
+                    level: .info,
+                    message: "Epoch \(epoch): L=\(String(format: "%.4f", metrics.totalLoss)) L_bins=\(String(format: "%.4f", metrics.binLoss)) L_neg=\(String(format: "%.4f", metrics.negativeLoss)) L_spike=\(String(format: "%.4f", metrics.spikeLoss)) L_boundary=\(String(format: "%.4f", metrics.boundaryLoss)) spike_rate=\(String(format: "%.3f", metrics.spikeRate)) completion=\(String(format: "%.3f", metrics.completionRate)) opt_acc=\(String(format: "%.3f", metrics.optionAccuracy ?? -1))"
+                )
+                if !logSilence {
+                    print("Epoch \(epoch)/\(epochs): L=\(String(format: "%.4f", metrics.totalLoss)) bins=\(String(format: "%.4f", metrics.binLoss)) neg=\(String(format: "%.4f", metrics.negativeLoss)) spike=\(String(format: "%.4f", metrics.spikeLoss)) boundary=\(String(format: "%.4f", metrics.boundaryLoss)) opt_acc=\(String(format: "%.3f", metrics.optionAccuracy ?? -1))")
+                }
+            }
 
             // Save checkpoint periodically
             if (epoch + 1) % saveEvery == 0 || epoch == epochs - 1 {
@@ -265,14 +276,17 @@ struct EnergeticCLI {
                     learningConfig: learningCfg,
                     capsuleConfig: snapshot.root.capsule,
                     bins: flowCfg.bins,
-                    processID: processID
+                    processID: processID,
+                    cache: &validCache
                 )
                 LoggingHub.emit(
                     process: "trainer.eval",
                     level: .info,
                     message: "Eval epoch \(epoch): L=\(String(format: "%.4f", evalMetrics.totalLoss)) bins=\(String(format: "%.4f", evalMetrics.binLoss)) neg=\(String(format: "%.4f", evalMetrics.negativeLoss)) acc=\(String(format: "%.3f", evalMetrics.optionAccuracy ?? -1))"
                 )
-                print("Eval \(epoch): L=\(String(format: "%.4f", evalMetrics.totalLoss)) bins=\(String(format: "%.4f", evalMetrics.binLoss)) neg=\(String(format: "%.4f", evalMetrics.negativeLoss)) acc=\(String(format: "%.3f", evalMetrics.optionAccuracy ?? -1))")
+                if !logSilence {
+                    print("Eval \(epoch): L=\(String(format: "%.4f", evalMetrics.totalLoss)) bins=\(String(format: "%.4f", evalMetrics.binLoss)) neg=\(String(format: "%.4f", evalMetrics.negativeLoss)) acc=\(String(format: "%.3f", evalMetrics.optionAccuracy ?? -1))")
+                }
             }
         }
 
@@ -319,6 +333,14 @@ struct EnergeticCLI {
         """)
     }
 
+    private struct EncodedSample {
+        let energies: [Float]
+        let targets: [Float]
+        let wrongTargets: [[Float]]
+        let optionTargets: [[Float]]
+        let correctIndex: Int
+    }
+
     private static func makeTrainingPair(
         index: Int,
         samples: [LogiQASample],
@@ -326,21 +348,29 @@ struct EnergeticCLI {
         fallbackAnswer: String,
         capsuleConfig: ConfigRoot.Capsule,
         bins: Int,
-        processID: String
+        processID: String,
+        cache: inout [String: EncodedSample]
     ) -> (energies: [Float], targets: [Float], wrongTargets: [[Float]], optionTargets: [[Float]], correctIndex: Int) {
         let inputText: String
         let answerText: String
         let wrongAnswers: [String]
+        let sampleID: String
         if samples.isEmpty {
             inputText = fallbackInput
             answerText = fallbackAnswer
             wrongAnswers = []
+            sampleID = "fallback"
         } else {
             let idx = index % samples.count
             let sample = samples[idx]
             inputText = sample.input_text
             answerText = sample.answer_text
             wrongAnswers = sample.wrong_answers
+            sampleID = sample.id
+        }
+
+        if let cached = cache[sampleID] {
+            return (cached.energies, cached.targets, cached.wrongTargets, cached.optionTargets, cached.correctIndex)
         }
 
         let inputData = truncateIfNeeded(Data(inputText.utf8), maxBytes: capsuleConfig.maxInputBytes)
@@ -377,6 +407,8 @@ struct EnergeticCLI {
         }
 
         let optionTargets = [targets] + wrongTargets
+        let encoded = EncodedSample(energies: inputEnergies, targets: targets, wrongTargets: wrongTargets, optionTargets: optionTargets, correctIndex: 0)
+        cache[sampleID] = encoded
         return (inputEnergies, targets, wrongTargets, optionTargets, 0)
     }
 
@@ -387,7 +419,8 @@ struct EnergeticCLI {
         learningConfig: LearningConfig,
         capsuleConfig: ConfigRoot.Capsule,
         bins: Int,
-        processID: String
+        processID: String,
+        cache: inout [String: EncodedSample]
     ) -> LearningMetrics {
         let evalLoop = FlowLearningLoop(flowConfig: flowConfig, learningConfig: learningConfig, seed: UInt64(epoch &+ 1000))
         var totalLoss: Float = 0
@@ -397,15 +430,21 @@ struct EnergeticCLI {
         var accCount: Float = 0
 
         for (i, sample) in samples.enumerated() {
-            let pair = makeTrainingPair(
-                index: i,
-                samples: [sample],
-                fallbackInput: sample.input_text,
-                fallbackAnswer: sample.answer_text,
-                capsuleConfig: capsuleConfig,
-                bins: bins,
-                processID: processID
-            )
+            let pair: (energies: [Float], targets: [Float], wrongTargets: [[Float]], optionTargets: [[Float]], correctIndex: Int)
+            if let cached = cache[sample.id] {
+                pair = (cached.energies, cached.targets, cached.wrongTargets, cached.optionTargets, cached.correctIndex)
+            } else {
+                pair = makeTrainingPair(
+                    index: i,
+                    samples: [sample],
+                    fallbackInput: sample.input_text,
+                    fallbackAnswer: sample.answer_text,
+                    capsuleConfig: capsuleConfig,
+                    bins: bins,
+                    processID: processID,
+                    cache: &cache
+                )
+            }
             let metrics = evalLoop.runEpoch(
                 epoch: epoch,
                 energies: pair.energies,
