@@ -186,6 +186,15 @@ public struct RouterLearningState: Sendable, Codable {
             self.radialBias = params.radialBias
             self.spikeKick = params.spikeKick
         }
+
+        public func toLearnableParameters() -> LearnableParameters {
+            LearnableParameters(
+                gains: gains,
+                lifThreshold: lifThreshold,
+                radialBias: radialBias,
+                spikeKick: spikeKick
+            )
+        }
     }
 }
 

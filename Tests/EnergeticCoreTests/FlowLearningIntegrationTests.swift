@@ -19,6 +19,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
             epochs: 20,
             stepsPerEpoch: 10,
             targetSpikeRate: 0.2,
+            logEvery: 1,
+            logEveryUI: 1,
             learningRates: .init(gain: 0.01, lif: 0.02, dynamics: 0.005),
             lossWeights: .init(spike: 0.1, boundary: 0.05),
             bounds: .init(
@@ -97,6 +99,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
             epochs: 5,
             stepsPerEpoch: 8,
             targetSpikeRate: 0.15,
+            logEvery: 1,
+            logEveryUI: 1,
             learningRates: .init(gain: 0.005, lif: 0.01, dynamics: 0.002),
             lossWeights: .init(spike: 0.1, boundary: 0.05),
             bounds: .init(
@@ -154,6 +158,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
             epochs: 3,
             stepsPerEpoch: 6,
             targetSpikeRate: 0.18,
+            logEvery: 1,
+            logEveryUI: 1,
             learningRates: .init(gain: 0.008, lif: 0.015, dynamics: 0.003),
             lossWeights: .init(spike: 0.12, boundary: 0.06),
             bounds: .init(
@@ -229,6 +235,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
             epochs: 1,
             stepsPerEpoch: 8,
             targetSpikeRate: 0.3,  // High target
+            logEvery: 1,
+            logEveryUI: 1,
             learningRates: .init(gain: 0.005, lif: 0.05, dynamics: 0.002),  // Large LIF LR
             lossWeights: .init(spike: 1.0, boundary: 0.05),  // High spike weight
             bounds: .init(
@@ -281,6 +289,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
             epochs: 1,
             stepsPerEpoch: 1,
             targetSpikeRate: 0.1,
+            logEvery: 1,
+            logEveryUI: 1,
             learningRates: .init(gain: 0.01, lif: 0.0, dynamics: 0.0),
             lossWeights: .init(spike: 0.0, boundary: 0.0),
             bounds: .init(

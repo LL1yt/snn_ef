@@ -5,6 +5,7 @@ seed: 42
 logging:
   default_level: "info"
   signposts: true
+  file_sync: false
   destinations:
     - type: "stdout"
     - type: "file"
@@ -86,9 +87,10 @@ router:
       epochs: 50
       steps_per_epoch: 12
       target_spike_rate: 0.15
-      eval_every: 30
+      eval_every: 300
       log_silence: true
       log_every: 100
+      log_every_ui: 300
       dataset:
         name: "logiqa"
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"

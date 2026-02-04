@@ -22,7 +22,8 @@ final class DiagnosticsTests: XCTestCase {
             signposts: false,
             destinations: [.init(type: .stdout, path: nil)],
             levelsOverride: [:],
-            timestampKind: .relative
+            timestampKind: .relative,
+            fileSync: true
         )
         let capsule = ConfigRoot.Capsule(
             enabled: true,
@@ -64,6 +65,8 @@ final class DiagnosticsTests: XCTestCase {
                     targetSpikeRate: 0.15,
                     evalEvery: 30,
                     logSilence: true,
+                    logEvery: 30,
+                    logEveryUI: 30,
                     dataset: .init(
                         name: "logiqa",
                         localPath: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl",

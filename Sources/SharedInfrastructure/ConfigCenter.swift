@@ -125,6 +125,9 @@ enum Validation {
         if learning.logEvery < 1 {
             throw ConfigError.invalidLearningParameter("log_every must be ≥ 1 (got \(learning.logEvery))")
         }
+        if learning.logEveryUI < 1 {
+            throw ConfigError.invalidLearningParameter("log_every_ui must be ≥ 1 (got \(learning.logEveryUI))")
+        }
         if learning.dataset.localPath.isEmpty {
             throw ConfigError.invalidLearningParameter("dataset.local_path must be non-empty")
         }
@@ -312,6 +315,7 @@ public struct ConfigRoot: Decodable {
         public let destinations: [Destination]
         public let levelsOverride: [String: LogLevel]
         public let timestampKind: TimestampKind
+        public let fileSync: Bool
 
         enum CodingKeys: String, CodingKey {
             case defaultLevel = "default_level"
@@ -319,6 +323,17 @@ public struct ConfigRoot: Decodable {
             case destinations
             case levelsOverride = "levels_override"
             case timestampKind = "timestamp_kind"
+            case fileSync = "file_sync"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            defaultLevel = try container.decode(LogLevel.self, forKey: .defaultLevel)
+            signposts = try container.decodeIfPresent(Bool.self, forKey: .signposts) ?? false
+            destinations = try container.decodeIfPresent([Destination].self, forKey: .destinations) ?? [.init(type: .stdout, path: nil)]
+            levelsOverride = try container.decodeIfPresent([String: LogLevel].self, forKey: .levelsOverride) ?? [:]
+            timestampKind = try container.decodeIfPresent(TimestampKind.self, forKey: .timestampKind) ?? .relative
+            fileSync = try container.decodeIfPresent(Bool.self, forKey: .fileSync) ?? true
         }
 
         public enum TimestampKind: String, Decodable {
@@ -339,6 +354,22 @@ public struct ConfigRoot: Decodable {
                 case stdout
                 case file
             }
+        }
+
+        public init(
+            defaultLevel: LogLevel,
+            signposts: Bool,
+            destinations: [Destination],
+            levelsOverride: [String: LogLevel],
+            timestampKind: TimestampKind,
+            fileSync: Bool
+        ) {
+            self.defaultLevel = defaultLevel
+            self.signposts = signposts
+            self.destinations = destinations
+            self.levelsOverride = levelsOverride
+            self.timestampKind = timestampKind
+            self.fileSync = fileSync
         }
     }
 
@@ -480,6 +511,7 @@ public struct ConfigRoot: Decodable {
                 public let evalEvery: Int
                 public let logSilence: Bool
                 public let logEvery: Int
+                public let logEveryUI: Int
                 public let dataset: Dataset
                 public let negative: Negative
                 public let lr: LearningRates
@@ -496,6 +528,7 @@ public struct ConfigRoot: Decodable {
                     case evalEvery = "eval_every"
                     case logSilence = "log_silence"
                     case logEvery = "log_every"
+                    case logEveryUI = "log_every_ui"
                     case dataset
                     case negative
                     case lr
@@ -613,7 +646,7 @@ public struct ConfigRoot: Decodable {
                     }
                 }
 
-                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, logEvery: Int, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
+                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, logEvery: Int, logEveryUI: Int, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
                     self.enabled = enabled
                     self.epochs = epochs
                     self.stepsPerEpoch = stepsPerEpoch
@@ -621,6 +654,7 @@ public struct ConfigRoot: Decodable {
                     self.evalEvery = evalEvery
                     self.logSilence = logSilence
                     self.logEvery = logEvery
+                    self.logEveryUI = logEveryUI
                     self.dataset = dataset
                     self.negative = negative
                     self.lr = lr
@@ -628,6 +662,25 @@ public struct ConfigRoot: Decodable {
                     self.bounds = bounds
                     self.aggregator = aggregator
                     self.targets = targets
+                }
+
+                public init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    enabled = try container.decode(Bool.self, forKey: .enabled)
+                    epochs = try container.decode(Int.self, forKey: .epochs)
+                    stepsPerEpoch = try container.decode(Int.self, forKey: .stepsPerEpoch)
+                    targetSpikeRate = try container.decode(Double.self, forKey: .targetSpikeRate)
+                    evalEvery = try container.decodeIfPresent(Int.self, forKey: .evalEvery) ?? 1
+                    logSilence = try container.decodeIfPresent(Bool.self, forKey: .logSilence) ?? false
+                    logEvery = try container.decodeIfPresent(Int.self, forKey: .logEvery) ?? 1
+                    logEveryUI = try container.decodeIfPresent(Int.self, forKey: .logEveryUI) ?? logEvery
+                    dataset = try container.decode(Dataset.self, forKey: .dataset)
+                    negative = try container.decode(Negative.self, forKey: .negative)
+                    lr = try container.decode(LearningRates.self, forKey: .lr)
+                    weights = try container.decode(LossWeights.self, forKey: .weights)
+                    bounds = try container.decode(ParameterBounds.self, forKey: .bounds)
+                    aggregator = try container.decode(Aggregator.self, forKey: .aggregator)
+                    targets = try container.decode(Targets.self, forKey: .targets)
                 }
             }
         }

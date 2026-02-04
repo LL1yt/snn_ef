@@ -99,6 +99,7 @@ public enum LoggingHub {
         newState.minLevel = logging.defaultLevel
         newState.overrides = logging.levelsOverride
         newState.timestampKind = logging.timestampKind
+        newState.fileSync = logging.fileSync
         newState.startDate = Date()
 
         newState.destinations = try prepareDestinations(
@@ -136,10 +137,12 @@ public enum LoggingHub {
                 do {
                     try handle.seekToEnd()
                     handle.write(data)
-                    if #available(macOS 13.0, *) {
-                        try handle.synchronize()
-                    } else {
-                        handle.synchronizeFile()
+                    if state.fileSync {
+                        if #available(macOS 13.0, *) {
+                            try handle.synchronize()
+                        } else {
+                            handle.synchronizeFile()
+                        }
                     }
                 } catch {
                     // swallow write errors for now; future work: surface diagnostics
@@ -216,6 +219,7 @@ public enum LoggingHub {
         var overrides: [String: LogLevel] = [:]
         var destinations: [Destination] = [.stdout]
         var timestampKind: ConfigRoot.Logging.TimestampKind = .relative
+        var fileSync: Bool = true
         var startDate: Date = Date()
         var lastEventPerProcess: [String: Date] = [:]
     }

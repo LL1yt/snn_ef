@@ -108,7 +108,8 @@ final class LoggingHubTests: XCTestCase {
             signposts: false,
             destinations: loggingDestinations,
             levelsOverride: overrides,
-            timestampKind: .relative
+            timestampKind: .relative,
+            fileSync: true
         )
 
         let paths = ConfigRoot.Paths(
@@ -161,6 +162,8 @@ final class LoggingHubTests: XCTestCase {
                     targetSpikeRate: 0.15,
                     evalEvery: 30,
                     logSilence: true,
+                    logEvery: 30,
+                    logEveryUI: 30,
                     dataset: .init(
                         name: "logiqa",
                         localPath: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl",

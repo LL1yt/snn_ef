@@ -50,7 +50,8 @@ final class PipelineSnapshotTests: XCTestCase {
             signposts: false,
             destinations: [.init(type: .stdout, path: nil)],
             levelsOverride: [:],
-            timestampKind: .relative
+            timestampKind: .relative,
+            fileSync: true
         )
         let paths = ConfigRoot.Paths(
             logsDir: baseDir.appendingPathComponent("Logs").path,
@@ -98,6 +99,8 @@ final class PipelineSnapshotTests: XCTestCase {
                     targetSpikeRate: 0.15,
                     evalEvery: 30,
                     logSilence: true,
+                    logEvery: 30,
+                    logEveryUI: 30,
                     dataset: .init(
                         name: "logiqa",
                         localPath: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl",

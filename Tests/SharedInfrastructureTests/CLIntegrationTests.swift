@@ -92,6 +92,7 @@ final class CLIntegrationTests: XCTestCase {
         logging:
           default_level: "info"
           signposts: false
+          file_sync: true
           destinations:
             - type: "stdout"
           levels_override:
@@ -159,6 +160,7 @@ final class CLIntegrationTests: XCTestCase {
               eval_every: 30
               log_silence: true
               log_every: 30
+              log_every_ui: 30
               dataset:
                 name: "logiqa"
                 local_path: "\(base.appendingPathComponent("prepared_train.jsonl").path)"

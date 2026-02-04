@@ -28,6 +28,7 @@ ui: { ... } # визуализация/CLI
 logging:
   default_level: "info" # trace|debug|info|warn|error
   signposts: true # включать os_signpost маркеры
+  file_sync: true # синхронизация файла после каждой записи
   destinations:
     - type: "stdout"
     - type: "file"
@@ -151,6 +152,7 @@ router:
       eval_every: 30              # валидация каждые N эпох (>=1)
       log_silence: true           # не печатать прогресс в stdout (только файл)
       log_every: 10               # логировать метрики каждые N эпох (>=1)
+      log_every_ui: 30            # логировать UI-payload каждые N эпох (>=1)
       dataset:
         name: "logiqa"
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
@@ -202,6 +204,7 @@ Constraints:
 - `learning.negative.weight ≥ 0`, `learning.negative.margin ≥ 0`.
 - `learning.eval_every ≥ 1`.
 - `learning.log_every ≥ 1`.
+- `learning.log_every_ui ≥ 1`.
 
 ---
 
@@ -233,6 +236,7 @@ seed: 42
 logging:
   default_level: "info"
   signposts: true
+  file_sync: true
   destinations:
     - type: "stdout"
     - type: "file"
@@ -313,6 +317,7 @@ router:
       eval_every: 30
       log_silence: true
       log_every: 30
+      log_every_ui: 30
       dataset:
         name: "logiqa"
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"

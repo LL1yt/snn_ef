@@ -76,6 +76,7 @@ final class SharedInfrastructureTests: XCTestCase {
     logging:
       default_level: "info"
       signposts: true
+      file_sync: true
       destinations:
         - type: "stdout"
       levels_override:
@@ -143,6 +144,7 @@ final class SharedInfrastructureTests: XCTestCase {
           eval_every: 30
           log_silence: true
           log_every: 30
+          log_every_ui: 30
           dataset:
             name: "logiqa"
             local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"

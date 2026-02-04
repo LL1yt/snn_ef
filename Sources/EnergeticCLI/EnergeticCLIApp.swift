@@ -204,6 +204,22 @@ struct EnergeticCLI {
         // Checkpoints directory
         let checkpointsDir = URL(fileURLWithPath: snapshot.root.paths.checkpointsDir)
         var allMetrics: [LearningMetrics] = []
+        var startEpoch = 0
+
+        if let latest = CheckpointManager.findLatestCheckpoint(in: checkpointsDir) {
+            do {
+                let state = try CheckpointManager.load(from: latest)
+                if state.epoch + 1 < epochs {
+                    learningLoop.loadParameters(state.params.toLearnableParameters())
+                    startEpoch = state.epoch + 1
+                    LoggingHub.emit(process: "cli.main", level: .info, message: "Resuming from checkpoint \(latest.lastPathComponent) at epoch \(state.epoch)")
+                } else {
+                    LoggingHub.emit(process: "cli.main", level: .info, message: "Latest checkpoint epoch \(state.epoch) ≥ requested epochs \(epochs). Starting from 0.")
+                }
+            } catch {
+                LoggingHub.emit(process: "cli.main", level: .warn, message: "Failed to load checkpoint \(latest.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
 
         print("Starting learning: epochs=\(epochs), bins=\(flowCfg.bins), target_spike_rate=\(learningCfg.targetSpikeRate)")
 
@@ -220,7 +236,7 @@ struct EnergeticCLI {
             validCache = buildCache(samples: validSamples, capsuleConfig: snapshot.root.capsule, bins: flowCfg.bins, processID: processID)
         }
 
-        for epoch in 0..<epochs {
+        for epoch in startEpoch..<epochs {
             let pair = makeTrainingPair(
                 index: epoch,
                 samples: trainSamples,
@@ -322,6 +338,10 @@ struct EnergeticCLI {
           --epochs N         Number of training epochs (default: from config)
           --save-every K     Save checkpoint every K epochs (default: 10)
           --dataset PATH     Path to dataset file (optional)
+
+        Config (learning):
+          log_every          Emit CLI progress logs every N epochs
+          log_every_ui       Emit UI payloads every N epochs
 
         Environment:
           SNN_CONFIG_PATH    Path to config YAML (default: Configs/baseline.yaml)
