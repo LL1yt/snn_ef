@@ -31,6 +31,7 @@ public struct LogEvent: Sendable {
 public enum LoggingHub {
     private static let queue = DispatchQueue(label: "LoggingHub.queue")
     private static var state = State()
+    private static var suppressStdout = false
     private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -48,6 +49,12 @@ public enum LoggingHub {
         }
         if let thrownError {
             throw thrownError
+        }
+    }
+
+    public static func setSuppressStdout(_ enabled: Bool) {
+        queue.sync {
+            suppressStdout = enabled
         }
     }
 
@@ -122,7 +129,9 @@ public enum LoggingHub {
         for destination in state.destinations {
             switch destination {
             case .stdout:
-                FileHandle.standardOutput.write(data)
+                if !suppressStdout {
+                    FileHandle.standardOutput.write(data)
+                }
             case let .file(_, handle):
                 do {
                     try handle.seekToEnd()

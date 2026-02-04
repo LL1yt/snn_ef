@@ -13,6 +13,8 @@ logging:
     capsule.encode: "debug"
     router.spike: "trace"
     ui.pipeline: "info"
+    trainer.loop: "warn"
+    trainer.eval: "info"
   timestamp_kind: "relative"
 
 process_registry:
@@ -84,6 +86,8 @@ router:
       epochs: 50
       steps_per_epoch: 12
       target_spike_rate: 0.15
+      eval_every: 30
+      log_silence: true
       dataset:
         name: "logiqa"
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
@@ -102,7 +106,7 @@ router:
         lif: 0.01
         dynamics: 0.005
       weights:
-        spike: 0.1
+        spike: 0.0
         boundary: 0.05
       bounds:
         theta: [0.5, 1.0]

@@ -205,6 +205,8 @@ final class CapsuleCoreTests: XCTestCase {
               epochs: 50
               steps_per_epoch: 12
               target_spike_rate: 0.15
+              eval_every: 30
+              log_silence: true
               dataset:
                 name: "logiqa"
                 local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"

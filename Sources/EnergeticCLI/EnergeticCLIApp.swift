@@ -208,7 +208,10 @@ struct EnergeticCLI {
         print("Starting learning: epochs=\(epochs), bins=\(flowCfg.bins), target_spike_rate=\(learningCfg.targetSpikeRate)")
 
         // Training loop
-        let evalEvery = max(1, saveEvery)
+        let evalEvery = max(1, snapshot.root.router.flow.learning.evalEvery)
+        if snapshot.root.router.flow.learning.logSilence {
+            LoggingHub.setSuppressStdout(true)
+        }
         for epoch in 0..<epochs {
             let pair = makeTrainingPair(
                 index: epoch,

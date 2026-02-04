@@ -159,6 +159,8 @@ final class LoggingHubTests: XCTestCase {
                     epochs: 1,
                     stepsPerEpoch: 1,
                     targetSpikeRate: 0.15,
+                    evalEvery: 30,
+                    logSilence: true,
                     dataset: .init(
                         name: "logiqa",
                         localPath: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl",

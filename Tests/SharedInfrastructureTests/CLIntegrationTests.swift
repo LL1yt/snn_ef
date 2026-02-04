@@ -156,6 +156,8 @@ final class CLIntegrationTests: XCTestCase {
               epochs: 1
               steps_per_epoch: 1
               target_spike_rate: 0.15
+              eval_every: 30
+              log_silence: true
               dataset:
                 name: "logiqa"
                 local_path: "\(base.appendingPathComponent("prepared_train.jsonl").path)"
