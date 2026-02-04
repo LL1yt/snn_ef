@@ -42,6 +42,9 @@ let package = Package(
                 "EnergyFlowSimulator.swift",
                 "Graph.swift",
                 "GraphBuilder.swift"
+            ],
+            resources: [
+                .process("Shaders")
             ]
         ),
         .target(

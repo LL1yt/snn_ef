@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public enum LogLevel: String, Sendable, Decodable {
     case trace, debug, info, warn, error
@@ -32,6 +33,7 @@ public enum LoggingHub {
     private static let queue = DispatchQueue(label: "LoggingHub.queue")
     private static var state = State()
     private static var suppressStdout = false
+    private static let signpostLog = OSLog(subsystem: "EnergeticCore", category: "signpost")
     private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -105,6 +107,7 @@ public enum LoggingHub {
         newState.overrides = logging.levelsOverride
         newState.timestampKind = logging.timestampKind
         newState.fileSync = logging.fileSync
+        newState.signpostsEnabled = logging.signposts
         newState.startDate = Date()
 
         newState.destinations = try prepareDestinations(
@@ -225,6 +228,7 @@ public enum LoggingHub {
         var destinations: [Destination] = [.stdout]
         var timestampKind: ConfigRoot.Logging.TimestampKind = .relative
         var fileSync: Bool = true
+        var signpostsEnabled: Bool = false
         var startDate: Date = Date()
         var lastEventPerProcess: [String: Date] = [:]
     }
@@ -232,5 +236,30 @@ public enum LoggingHub {
     private enum Destination {
         case stdout
         case file(URL, FileHandle)
+    }
+}
+
+// MARK: - Signposts
+
+public struct SignpostToken: Sendable {
+    fileprivate let id: OSSignpostID
+}
+
+public extension LoggingHub {
+    static func beginSignpost(_ name: StaticString) -> SignpostToken? {
+        queue.sync {
+            guard state.signpostsEnabled else { return nil }
+            let id = OSSignpostID(log: signpostLog)
+            os_signpost(.begin, log: signpostLog, name: name, signpostID: id)
+            return SignpostToken(id: id)
+        }
+    }
+
+    static func endSignpost(_ name: StaticString, token: SignpostToken?) {
+        guard let token else { return }
+        queue.sync {
+            guard state.signpostsEnabled else { return }
+            os_signpost(.end, log: signpostLog, name: name, signpostID: token.id)
+        }
     }
 }

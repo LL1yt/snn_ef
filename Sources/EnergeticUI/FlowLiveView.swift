@@ -28,7 +28,7 @@ public final class FlowLiveViewModel: ObservableObject {
         let seeds = FlowSeeds.makeSeeds(energies: energies, cfg: cfg, seed: seed)
         self.state = FlowState(step: 0, particles: seeds, bins: cfg.bins)
         self.outputs = state.outputs
-        self.particles = state.particles
+        self.particles = state.materializeParticles()
         self.trackIDs = Set(seeds.prefix(sampleCount).map { $0.id })
         for p in seeds where trackIDs.contains(p.id) { lastPos[p.id] = p.pos }
     }
@@ -37,7 +37,7 @@ public final class FlowLiveViewModel: ObservableObject {
         let seeds = FlowSeeds.makeSeeds(energies: energies, cfg: cfg, seed: seed)
         self.state = FlowState(step: 0, particles: seeds, bins: cfg.bins)
         self.outputs = state.outputs
-        self.particles = state.particles
+        self.particles = state.materializeParticles()
         self.stepIndex = 0
         self.completions.removeAll()
         self.lastEvents.removeAll()
@@ -49,7 +49,7 @@ public final class FlowLiveViewModel: ObservableObject {
     }
 
     public func step() {
-        guard !state.particles.isEmpty, stepIndex < cfg.T else {
+        guard !state.isEmpty, stepIndex < cfg.T else {
             isFinished = true
             finalizeProjection()
             return
@@ -73,7 +73,7 @@ public final class FlowLiveViewModel: ObservableObject {
         // Persist step history for table
         stepHistory.append(StepRecord(step: state.step, events: lastEvents))
         outputs = state.outputs
-        particles = state.particles
+        particles = state.materializeParticles()
         stepIndex = state.step
         if particles.isEmpty { isFinished = true; finalizeProjection() }
     }
@@ -85,16 +85,13 @@ public final class FlowLiveViewModel: ObservableObject {
     private func finalizeProjection() {
         if stepIndex >= cfg.T {
             // Project remaining for completeness
-            var tmp = state
-            if !tmp.particles.isEmpty {
-                for var p in tmp.particles {
-                    let r = length(p.pos)
-                    if r >= cfg.radius {
-                        let theta = atan2(p.pos.y, p.pos.x)
-                        let b = FlowProjector.binIndex(theta: theta, bins: cfg.bins)
-                        outputs[b] += max(0, p.energy)
-                        completions.append((id: p.id, bin: b, pos: p.pos))
-                    }
+            if !state.isEmpty {
+                for i in 0..<state.count {
+                    let p = state.particle(at: i)
+                    FlowProjector.projectFinal(p, cfg: cfg, outputs: &outputs, gains: nil)
+                    let theta = atan2(p.pos.y, p.pos.x)
+                    let b = FlowProjector.binIndex(theta: theta, bins: cfg.bins)
+                    completions.append((id: p.id, bin: b, pos: p.pos))
                 }
                 particles.removeAll()
             }

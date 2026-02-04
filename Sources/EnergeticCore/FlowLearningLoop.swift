@@ -194,7 +194,7 @@ public final class FlowLearningLoop {
         }
 
         for step in 0..<learningConfig.stepsPerEpoch {
-            guard !state.particles.isEmpty else { break }
+            guard !state.isEmpty else { break }
 
             let events = router.stepWithEvents(state: &state, gains: params.gains)
 

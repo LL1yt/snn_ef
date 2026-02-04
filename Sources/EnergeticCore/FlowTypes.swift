@@ -52,6 +52,7 @@ public struct FlowConfig: Sendable, Equatable {
         self.lif = lif
         self.dynamics = dynamics
     }
+
 }
 
 public struct FlowParticle: Sendable, Equatable {
@@ -72,13 +73,84 @@ public struct FlowParticle: Sendable, Equatable {
 
 public struct FlowState: Sendable {
     public var step: Int
-    public var particles: [FlowParticle]
     public var outputs: [Float]   // angular histogram bins (length = bins)
+    public var ids: [Int]
+    public var posX: [Float]
+    public var posY: [Float]
+    public var velX: [Float]
+    public var velY: [Float]
+    public var energy: [Float]
+    public var V: [Float]
 
     public init(step: Int = 0, particles: [FlowParticle], bins: Int) {
         self.step = step
-        self.particles = particles
         self.outputs = [Float](repeating: 0, count: bins)
+        self.ids = []
+        self.posX = []
+        self.posY = []
+        self.velX = []
+        self.velY = []
+        self.energy = []
+        self.V = []
+        reserveCapacity(particles.count)
+        for p in particles {
+            append(p)
+        }
+    }
+
+    public var count: Int { ids.count }
+    public var isEmpty: Bool { ids.isEmpty }
+
+    public mutating func reserveCapacity(_ n: Int) {
+        ids.reserveCapacity(n)
+        posX.reserveCapacity(n)
+        posY.reserveCapacity(n)
+        velX.reserveCapacity(n)
+        velY.reserveCapacity(n)
+        energy.reserveCapacity(n)
+        V.reserveCapacity(n)
+    }
+
+    public mutating func append(_ p: FlowParticle) {
+        ids.append(p.id)
+        posX.append(p.pos.x)
+        posY.append(p.pos.y)
+        velX.append(p.vel.x)
+        velY.append(p.vel.y)
+        energy.append(p.energy)
+        V.append(p.V)
+    }
+
+    public mutating func truncate(to newCount: Int) {
+        let current = count
+        guard newCount < current else { return }
+        let removeCount = current - newCount
+        ids.removeLast(removeCount)
+        posX.removeLast(removeCount)
+        posY.removeLast(removeCount)
+        velX.removeLast(removeCount)
+        velY.removeLast(removeCount)
+        energy.removeLast(removeCount)
+        V.removeLast(removeCount)
+    }
+
+    public func particle(at index: Int) -> FlowParticle {
+        FlowParticle(
+            id: ids[index],
+            pos: SIMD2<Float>(posX[index], posY[index]),
+            vel: SIMD2<Float>(velX[index], velY[index]),
+            energy: energy[index],
+            V: V[index]
+        )
+    }
+
+    public func materializeParticles() -> [FlowParticle] {
+        var out: [FlowParticle] = []
+        out.reserveCapacity(count)
+        for i in 0..<count {
+            out.append(particle(at: i))
+        }
+        return out
     }
 }
 

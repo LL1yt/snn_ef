@@ -54,59 +54,44 @@ public struct LearningMetricsView: View {
                 .font(.footnote)
                 .foregroundColor(.secondary)
         } else {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 16) {
-                    trajectoryColumn
-                    histogramColumn
-                }
-                HStack(alignment: .top, spacing: 16) {
-                    metricsColumn
-                    paramsColumn
-                    dynamicsColumn
-                }
+            HStack(alignment: .top, spacing: 16) {
+                leftColumn
+                centerColumn
+                rightColumn
             }
         }
     }
 
-    private var metricsColumn: some View {
+    private var leftColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
             qualityPanel
+            paramsPanel
+        }
+        .frame(maxWidth: 260)
+    }
+
+    @ViewBuilder
+    private var centerColumn: some View {
+        if let record = currentRecord {
+            StreamTracksView(
+                traces: record.traces ?? [],
+                paths: record.paths ?? [],
+                radius: record.radius.R,
+                snapToGrid: snapToGrid
+            )
+            .frame(minWidth: 520, maxWidth: CGFloat.infinity)
+        } else {
+            EmptyView()
+        }
+    }
+
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            histogramPanel
             lossCharts
             rateCharts
         }
-        .frame(maxWidth: 320)
-    }
-
-    private var paramsColumn: some View {
-        paramsPanel
-            .frame(maxWidth: 260)
-    }
-
-    @ViewBuilder
-    private var histogramColumn: some View {
-        histogramPanel
-            .frame(maxWidth: 320)
-    }
-
-    @ViewBuilder
-    private var dynamicsColumn: some View {
-        if let record = currentRecord {
-            DynamicsTracesView(traces: record.traces ?? [])
-        }
-    }
-
-    private var trajectoryColumn: some View {
-        if let record = currentRecord {
-            return AnyView(
-                TrajectoryTracesView(
-                    paths: record.paths ?? [],
-                    radius: record.radius.R,
-                    snapToGrid: snapToGrid
-                )
-                .frame(minWidth: 520, maxWidth: .infinity)
-            )
-        }
-        return AnyView(EmptyView())
+        .frame(maxWidth: 360)
     }
 
     private var lossCharts: some View {
@@ -120,13 +105,11 @@ public struct LearningMetricsView: View {
             Text("Loss")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            HStack(spacing: 12) {
-                MetricLineChart(title: "Total", values: total, color: .blue, trendHint: trendHint(for: "Total", values: total))
-                MetricLineChart(title: "Bins", values: bins, color: .teal, trendHint: trendHint(for: "Bins", values: bins))
-                MetricLineChart(title: "Negative", values: negative, color: .pink, trendHint: trendHint(for: "Negative", values: negative))
-                MetricLineChart(title: "Spike", values: spike, color: .orange, trendHint: trendHint(for: "Spike", values: spike))
-                MetricLineChart(title: "Boundary", values: boundary, color: .purple, trendHint: trendHint(for: "Boundary", values: boundary))
-            }
+            MetricLineChart(title: "Total", values: total, color: .blue, trendHint: trendHint(for: "Total", values: total))
+            MetricLineChart(title: "Bins", values: bins, color: .teal, trendHint: trendHint(for: "Bins", values: bins))
+            MetricLineChart(title: "Negative", values: negative, color: .pink, trendHint: trendHint(for: "Negative", values: negative))
+            MetricLineChart(title: "Spike", values: spike, color: .orange, trendHint: trendHint(for: "Spike", values: spike))
+            MetricLineChart(title: "Boundary", values: boundary, color: .purple, trendHint: trendHint(for: "Boundary", values: boundary))
             Text("↓ better: Total/Bins/Negative/Spike/Boundary")
                 .font(.caption2)
                 .foregroundColor(.secondary)
@@ -137,19 +120,17 @@ public struct LearningMetricsView: View {
         let spike = viewModel.records.map { Double($0.rates.spike) }
         let completion = viewModel.records.map { Double($0.rates.completion) }
         let miss = viewModel.records.map { Double($0.radius.meanMiss) }
-        let accuracy = viewModel.records.compactMap { $0.optionAccuracy }.map { Double($0) }
+        let accuracy = movingAverage(values: viewModel.records.compactMap { $0.optionAccuracy }.map { Double($0) }, window: 8)
 
         return VStack(alignment: .leading, spacing: 8) {
             Text("Rates")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            HStack(spacing: 12) {
-                MetricLineChart(title: "Spike", values: spike, color: .red, trendHint: trendHint(for: "SpikeRate", values: spike))
-                MetricLineChart(title: "Completion", values: completion, color: .green, trendHint: trendHint(for: "Completion", values: completion))
-                MetricLineChart(title: "Radial miss", values: miss, color: .gray, trendHint: trendHint(for: "RadialMiss", values: miss))
-                if !accuracy.isEmpty {
-                    MetricLineChart(title: "Acc", values: accuracy, color: .indigo, trendHint: trendHint(for: "Acc", values: accuracy))
-                }
+            MetricLineChart(title: "Spike rate", values: spike, color: .red, trendHint: trendHint(for: "SpikeRate", values: spike))
+            MetricLineChart(title: "Completion", values: completion, color: .green, trendHint: trendHint(for: "Completion", values: completion))
+            MetricLineChart(title: "Radial miss", values: miss, color: .gray, trendHint: trendHint(for: "RadialMiss", values: miss))
+            if !accuracy.isEmpty {
+                MetricLineChart(title: "Option acc (avg)", values: accuracy, color: .indigo, trendHint: trendHint(for: "Acc", values: accuracy))
             }
             Text("↑ better: Completion, Acc | ↓ better: Radial miss | ≈ target: Spike rate")
                 .font(.caption2)
@@ -171,9 +152,7 @@ public struct LearningMetricsView: View {
                     metricCard(title: "Gain mean", value: String(format: "%.3f", latest.params.gainMean))
                     metricCard(title: "Gain var", value: String(format: "%.3f", latest.params.gainVariance))
                 }
-                if let acc = latest.optionAccuracy {
-                    optionAccuracyRow(value: acc)
-                }
+                optionAccuracyRow(values: viewModel.records.compactMap { $0.optionAccuracy })
             }
         }
     }
@@ -290,10 +269,11 @@ public struct LearningMetricsView: View {
         )
     }
 
-    private func optionAccuracyRow(value: Float) -> some View {
-        let pct = max(0, min(1, value))
+    private func optionAccuracyRow(values: [Float]) -> some View {
+        let avg = movingAverage(values: values.map { Double($0) }, window: 8).last ?? 0
+        let pct = max(0, min(1, avg))
         return HStack(spacing: 8) {
-            Text("Option acc")
+            Text("Option acc (avg)")
                 .font(.caption)
                 .foregroundColor(.secondary)
             ProgressView(value: Double(pct))
@@ -337,6 +317,24 @@ public struct LearningMetricsView: View {
             }
         }
         return (yOut, tOut)
+    }
+
+    private func movingAverage(values: [Double], window: Int) -> [Double] {
+        guard window > 1, !values.isEmpty else { return values }
+        var out: [Double] = []
+        out.reserveCapacity(values.count)
+        var sum: Double = 0
+        var buffer: [Double] = []
+        buffer.reserveCapacity(window)
+        for v in values {
+            buffer.append(v)
+            sum += v
+            if buffer.count > window {
+                sum -= buffer.removeFirst()
+            }
+            out.append(sum / Double(buffer.count))
+        }
+        return out
     }
 }
 
@@ -495,18 +493,44 @@ struct MetricLineChart: View {
     let trendHint: String?
 
     var body: some View {
+        let stats = summarize(values: values)
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
                 .foregroundColor(.secondary)
             LineChart(values: values, color: color)
-                .frame(height: 60)
+                .frame(height: 56)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
-            if let trendHint {
-                Text(trendHint)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                Text("min \(formatStat(stats.min))")
+                Text("avg \(formatStat(stats.mean))")
+                Text("max \(formatStat(stats.max))")
+                Spacer()
+                if let trendHint {
+                    Text(trendHint)
+                }
             }
+            .font(.caption2.monospacedDigit())
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private func summarize(values: [Double]) -> (min: Double, mean: Double, max: Double) {
+        guard !values.isEmpty else { return (0, 0, 0) }
+        let minV = values.min() ?? 0
+        let maxV = values.max() ?? 0
+        let meanV = values.reduce(0, +) / Double(values.count)
+        return (minV, meanV, maxV)
+    }
+
+    private func formatStat(_ value: Double) -> String {
+        let absV = abs(value)
+        if absV >= 10_000 {
+            return String(format: "%.2e", value)
+        } else if absV >= 100 {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.3f", value)
         }
     }
 }
@@ -551,246 +575,288 @@ struct HistogramComparisonView: View {
                 let maxY = max(yHat.max() ?? 0, target?.max() ?? 0, 1e-9)
 
                 for i in 0..<count {
-                    let yVal = CGFloat(yHat[i]) / CGFloat(maxY)
-                    let yHeight = h * yVal
                     let x = CGFloat(i) * barW
-                    let rect = CGRect(x: x, y: h - yHeight, width: max(barW - 1, 1), height: yHeight)
-                    ctx.fill(Path(rect), with: .color(.blue.opacity(0.6)))
-
                     if let target, i < target.count {
                         let tVal = CGFloat(target[i]) / CGFloat(maxY)
                         let tHeight = h * tVal
                         let tRect = CGRect(x: x, y: h - tHeight, width: max(barW - 1, 1), height: tHeight)
-                        ctx.stroke(Path(tRect), with: .color(.green.opacity(0.8)), lineWidth: 1)
+                        ctx.fill(Path(tRect), with: .color(.blue.opacity(0.55)))
                     }
+
+                    let yVal = CGFloat(yHat[i]) / CGFloat(maxY)
+                    let yHeight = h * yVal
+                    let rect = CGRect(x: x, y: h - yHeight, width: max(barW - 1, 1), height: yHeight)
+                    ctx.fill(Path(rect), with: .color(.green.opacity(0.35)))
+                    ctx.stroke(Path(rect), with: .color(.green.opacity(0.7)), lineWidth: 0.6)
                 }
             }
         }
     }
 }
 
-struct DynamicsTracesView: View {
+struct StreamTracksView: View {
     let traces: [LearningLogPayload.Trace]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Dynamics (3 streams)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            if traces.isEmpty {
-                Text("No dynamics traces in payload.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(traces, id: \.id) { trace in
-                            TraceColumnView(trace: trace)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct TrajectoryTracesView: View {
     let paths: [LearningLogPayload.Path]
     let radius: Float?
     let snapToGrid: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Trajectories (physics view)")
+            Text("Stream dynamics (tracks)")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
-            if paths.isEmpty {
-                Text("No trajectory paths in payload.")
+            if traces.isEmpty && paths.isEmpty {
+                Text("No stream traces in payload.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             } else {
-                GeometryReader { geo in
-                    Canvas { ctx, size in
-                        let w = size.width
-                        let h = size.height
-                        let cx = w / 2
-                        let cy = h / 2
-                        let baseR = CGFloat(radius ?? maxRadius(from: paths))
-                        let rView = max(1, min(w, h) * 0.42)
-                        let scale = baseR > 0 ? rView / baseR : 1
-
-                        let gridSpacing = max(10, rView / 6)
-                        drawDotGrid(ctx: &ctx, size: size, center: CGPoint(x: cx, y: cy), rView: rView, spacing: gridSpacing)
-                        drawBoundaryArc(ctx: &ctx, center: CGPoint(x: cx, y: cy), rView: rView)
-
-                        let palette: [Color] = [.blue, .orange, .green]
-                        for (idx, path) in paths.enumerated() {
-                            let color = palette[idx % palette.count]
-                            drawTrajectory(
-                                ctx: &ctx,
-                                path: path,
-                                center: CGPoint(x: cx, y: cy),
-                                scale: scale,
-                                color: color,
-                                baseR: baseR,
-                                rView: rView,
-                                snapToGrid: snapToGrid,
-                                gridSpacing: gridSpacing
-                            )
-                        }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        TrajectoryLegendView()
-                            .padding(8)
+                VStack(alignment: .leading, spacing: 10) {
+                    let streamCount = min(3, max(traces.count, paths.count))
+                    ForEach(0..<streamCount, id: \.self) { idx in
+                        StreamTrackRow(
+                            title: "Stream \(idx)",
+                            steps: trackSteps(for: idx),
+                            color: streamColor(for: idx),
+                            radius: radius,
+                            snapToGrid: snapToGrid
+                        )
                     }
                 }
-                .frame(height: 320)
+                .overlay(alignment: .topLeading) {
+                    TrackLegendView()
+                        .padding(6)
+                }
             }
         }
     }
 
-    private func maxRadius(from paths: [LearningLogPayload.Path]) -> Float {
-        var maxR: Float = 1
-        for p in paths {
-            for point in p.points {
+    private func trackSteps(for index: Int) -> [TrackStep] {
+        if let trace = traces.first(where: { $0.id == index }) ?? traces.dropFirst(index).first {
+            let steps = trace.steps.suffix(24)
+            return steps.map { step in
+                let theta = Double(step.theta)
+                let x = step.r * Float(cos(theta))
+                let y = step.r * Float(sin(theta))
+                return TrackStep(
+                    t: step.t,
+                    x: x,
+                    y: y,
+                    r: step.r,
+                    theta: step.theta,
+                    speed: step.speed,
+                    energy: step.energy,
+                    bin: step.bin,
+                    spiked: step.spiked
+                )
+            }
+        }
+        if let path = paths.first(where: { $0.id == index }) ?? paths.dropFirst(index).first {
+            let points = path.points.suffix(24)
+            return points.map { point in
                 let r = sqrt(point.x * point.x + point.y * point.y)
-                if r > maxR { maxR = r }
+                let theta = Float(atan2(Double(point.y), Double(point.x)))
+                return TrackStep(
+                    t: point.t,
+                    x: point.x,
+                    y: point.y,
+                    r: r,
+                    theta: theta,
+                    speed: point.speed,
+                    energy: nil,
+                    bin: point.bin,
+                    spiked: point.spiked
+                )
             }
         }
-        return maxR
+        return []
     }
 
-    private func drawBoundaryArc(ctx: inout GraphicsContext, center: CGPoint, rView: CGFloat) {
-        let start = Angle(radians: -Double.pi / 3)
-        let end = Angle(radians: Double.pi / 3)
-        var path = Path()
-        path.addArc(center: center, radius: rView, startAngle: start, endAngle: end, clockwise: false)
-        ctx.stroke(path, with: .color(.cyan.opacity(0.8)), lineWidth: 2)
+    private func streamColor(for index: Int) -> Color {
+        switch index % 3 {
+        case 0: return .blue
+        case 1: return .orange
+        default: return .green
+        }
     }
+}
 
-    private func drawDotGrid(ctx: inout GraphicsContext, size: CGSize, center: CGPoint, rView: CGFloat, spacing: CGFloat) {
-        let dotR: CGFloat = 1.5
-        let minX = center.x - rView
-        let maxX = center.x + rView
-        let minY = center.y - rView
-        let maxY = center.y + rView
-        var y = minY
-        while y <= maxY {
-            var x = minX
-            while x <= maxX {
-                let dx = x - center.x
-                let dy = y - center.y
-                if (dx * dx + dy * dy) <= (rView * rView) {
-                    let rect = CGRect(x: x - dotR, y: y - dotR, width: dotR * 2, height: dotR * 2)
-                    ctx.fill(Path(ellipseIn: rect), with: .color(.secondary.opacity(0.2)))
+private struct StreamTrackRow: View {
+    let title: String
+    let steps: [TrackStep]
+    let color: Color
+    let radius: Float?
+    let snapToGrid: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            GeometryReader { geo in
+                Canvas { ctx, size in
+                    guard steps.count > 1 else { return }
+                    let padding: CGFloat = 10
+                    let centerY = size.height / 2
+                    let arcRadius = min(size.height * 0.42, 42)
+                    let arcCenter = CGPoint(x: size.width - padding - arcRadius, y: centerY)
+                    let availableWidth = max(20, arcCenter.x - padding)
+
+                    let gridSpacing = max(10, size.height / 4.5)
+                    drawDotGrid(ctx: &ctx, size: size, spacing: gridSpacing)
+                    drawBoundaryArc(ctx: &ctx, center: arcCenter, radius: arcRadius)
+
+                    let weights = segmentWeights()
+                    let totalWeight = max(weights.reduce(0, +), 1)
+                    let scale = availableWidth / totalWeight
+                    let angleScale: CGFloat = 1.8
+
+                    var current = CGPoint(x: padding, y: centerY)
+                    let keyIndices = keyStepIndices()
+
+                    for idx in 1..<steps.count {
+                        let prev = steps[idx - 1]
+                        let cur = steps[idx]
+                        let dxRaw = CGFloat(cur.x - prev.x)
+                        let dyRaw = CGFloat(cur.y - prev.y)
+                        let angle = atan2(dyRaw, dxRaw)
+                        let length = max(2, CGFloat(weights[idx - 1]) * scale)
+                        let dy = sin(angle) * angleScale * length
+                        var next = CGPoint(x: current.x + length, y: current.y + dy)
+                        next.y = min(max(padding, next.y), size.height - padding)
+
+                        let snappedStart = snapToGrid ? snapPoint(current, spacing: gridSpacing) : current
+                        let snappedEnd = snapToGrid ? snapPoint(next, spacing: gridSpacing) : next
+
+                        var segment = Path()
+                        segment.move(to: snappedStart)
+                        segment.addLine(to: snappedEnd)
+                        let width = min(max(1.2, length * 0.03), 4.0)
+                        if cur.spiked {
+                            ctx.stroke(segment, with: .color(.red.opacity(0.9)), lineWidth: width + 1.2)
+                        } else {
+                            ctx.stroke(segment, with: .color(color.opacity(0.8)), lineWidth: width)
+                        }
+
+                        if keyIndices.contains(idx) {
+                            drawStepLabel(ctx: &ctx, step: cur, at: snappedEnd)
+                        }
+
+                        current = next
+                    }
+
+                    if let last = steps.last {
+                        let lastPoint = snapToGrid ? snapPoint(current, spacing: gridSpacing) : current
+                        let marker = CGRect(x: lastPoint.x - 3, y: lastPoint.y - 3, width: 6, height: 6)
+                        ctx.fill(Path(ellipseIn: marker), with: .color(color))
+
+                        let theta = CGFloat(last.theta)
+                        let proj = CGPoint(
+                            x: arcCenter.x + cos(theta) * arcRadius,
+                            y: arcCenter.y + sin(theta) * arcRadius
+                        )
+                        let reached = radius.map { last.r >= $0 * 0.98 } ?? false
+                        let projColor: Color = reached ? .green : .cyan
+                        var projection = Path()
+                        projection.move(to: lastPoint)
+                        projection.addLine(to: proj)
+                        ctx.stroke(projection, with: .color(projColor.opacity(0.7)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+
+                        let projMark = CGRect(x: proj.x - 2.5, y: proj.y - 2.5, width: 5, height: 5)
+                        ctx.fill(Path(ellipseIn: projMark), with: .color(projColor.opacity(0.9)))
+                    }
                 }
+            }
+            .frame(height: 110)
+        }
+    }
+
+    private func segmentWeights() -> [CGFloat] {
+        var weights: [CGFloat] = []
+        for idx in 1..<steps.count {
+            let w = CGFloat(max(0.02, steps[idx].speed))
+            weights.append(w)
+        }
+        return weights
+    }
+
+    private func keyStepIndices() -> Set<Int> {
+        guard steps.count > 2 else { return [0, steps.count - 1] }
+        var indices: Set<Int> = [0, steps.count - 1, steps.count / 2]
+        for (idx, step) in steps.enumerated() where step.spiked {
+            indices.insert(idx)
+        }
+        return indices
+    }
+
+    private func drawBoundaryArc(ctx: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
+        let start = Angle(radians: -Double.pi / 2.2)
+        let end = Angle(radians: Double.pi / 2.2)
+        var arc = Path()
+        arc.addArc(center: center, radius: radius, startAngle: start, endAngle: end, clockwise: false)
+        ctx.stroke(arc, with: .color(.cyan.opacity(0.85)), lineWidth: 2)
+    }
+
+    private func drawDotGrid(ctx: inout GraphicsContext, size: CGSize, spacing: CGFloat) {
+        let dotR: CGFloat = 1.2
+        var y: CGFloat = spacing / 2
+        while y < size.height {
+            var x: CGFloat = spacing / 2
+            while x < size.width {
+                let rect = CGRect(x: x - dotR, y: y - dotR, width: dotR * 2, height: dotR * 2)
+                ctx.fill(Path(ellipseIn: rect), with: .color(.secondary.opacity(0.18)))
                 x += spacing
             }
             y += spacing
         }
     }
 
-    private func drawTrajectory(
-        ctx: inout GraphicsContext,
-        path: LearningLogPayload.Path,
-        center: CGPoint,
-        scale: CGFloat,
-        color: Color,
-        baseR: CGFloat,
-        rView: CGFloat,
-        snapToGrid: Bool,
-        gridSpacing: CGFloat
-    ) {
-        let points = path.points
-        guard points.count > 1 else { return }
-        var prev = points[0]
-        for idx in 1..<points.count {
-            let cur = points[idx]
-            let p0 = CGPoint(x: center.x + CGFloat(prev.x) * scale, y: center.y + CGFloat(prev.y) * scale)
-            let p1 = CGPoint(x: center.x + CGFloat(cur.x) * scale, y: center.y + CGFloat(cur.y) * scale)
-            let s0 = snapToGrid ? snapPoint(p0, center: center, spacing: gridSpacing) : p0
-            let s1 = snapToGrid ? snapPoint(p1, center: center, spacing: gridSpacing) : p1
-            let speed = CGFloat(cur.speed)
-            let width = min(max(1.0, speed * 2.0), 4.0)
-
-            var segment = Path()
-            segment.move(to: s0)
-            segment.addLine(to: s1)
-
-            if cur.spiked {
-                ctx.stroke(segment, with: .color(.red.opacity(0.9)), lineWidth: width + 1.5)
-            } else {
-                ctx.stroke(segment, with: .color(color.opacity(0.8)), lineWidth: width)
-            }
-            prev = cur
+    private func drawStepLabel(ctx: inout GraphicsContext, step: TrackStep, at point: CGPoint) {
+        var parts: [String] = []
+        parts.append(String(format: "r%.2f", step.r))
+        parts.append(String(format: "v%.2f", step.speed))
+        if let energy = step.energy {
+            parts.append(String(format: "E%.1f", energy))
         }
-
-        if let last = points.last {
-            let lastPtRaw = CGPoint(x: center.x + CGFloat(last.x) * scale, y: center.y + CGFloat(last.y) * scale)
-            let lastPt = snapToGrid ? snapPoint(lastPtRaw, center: center, spacing: gridSpacing) : lastPtRaw
-            let marker = CGRect(x: lastPt.x - 4, y: lastPt.y - 4, width: 8, height: 8)
-            ctx.fill(Path(ellipseIn: marker), with: .color(color))
-
-            let r = sqrt(last.x * last.x + last.y * last.y)
-            if r < Float(baseR) {
-                let dir = SIMD2<Float>(last.x, last.y)
-                let len = sqrt(dir.x * dir.x + dir.y * dir.y)
-                if len > 0 {
-                    let nx = CGFloat(dir.x / len)
-                    let ny = CGFloat(dir.y / len)
-                    let boundary = CGPoint(x: center.x + nx * rView, y: center.y + ny * rView)
-                    let snapBoundary = snapToGrid ? snapPoint(boundary, center: center, spacing: gridSpacing) : boundary
-                    var proj = Path()
-                    proj.move(to: lastPt)
-                    proj.addLine(to: snapBoundary)
-                    ctx.stroke(proj, with: .color(.gray.opacity(0.6)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                }
-            }
-
-            if points.count >= 2 {
-                let pPrev = points[points.count - 2]
-                let p0Raw = CGPoint(x: center.x + CGFloat(pPrev.x) * scale, y: center.y + CGFloat(pPrev.y) * scale)
-                let p0 = snapToGrid ? snapPoint(p0Raw, center: center, spacing: gridSpacing) : p0Raw
-                drawArrow(ctx: &ctx, from: p0, to: lastPt, color: color)
-            }
+        if let bin = step.bin {
+            parts.append("b\(bin)")
         }
+        let text = parts.joined(separator: " ")
+        let label = Text(text)
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .foregroundColor(.white)
+        let resolved = ctx.resolve(label)
+        let box = CGRect(x: point.x + 6, y: point.y - 12, width: resolved.size.width + 6, height: resolved.size.height + 4)
+        ctx.fill(Path(roundedRect: box, cornerRadius: 4), with: .color(.black.opacity(0.5)))
+        ctx.draw(label, at: CGPoint(x: box.midX, y: box.midY))
     }
 
-    private func snapPoint(_ point: CGPoint, center: CGPoint, spacing: CGFloat) -> CGPoint {
-        let dx = point.x - center.x
-        let dy = point.y - center.y
-        let sx = round(dx / spacing) * spacing
-        let sy = round(dy / spacing) * spacing
-        return CGPoint(x: center.x + sx, y: center.y + sy)
-    }
-
-    private func drawArrow(ctx: inout GraphicsContext, from: CGPoint, to: CGPoint, color: Color) {
-        let dx = to.x - from.x
-        let dy = to.y - from.y
-        let len = max(1, sqrt(dx * dx + dy * dy))
-        let ux = dx / len
-        let uy = dy / len
-        let tip = CGPoint(x: to.x, y: to.y)
-        let left = CGPoint(x: to.x - ux * 10 - uy * 4, y: to.y - uy * 10 + ux * 4)
-        let right = CGPoint(x: to.x - ux * 10 + uy * 4, y: to.y - uy * 10 - ux * 4)
-        var path = Path()
-        path.move(to: tip)
-        path.addLine(to: left)
-        path.move(to: tip)
-        path.addLine(to: right)
-        ctx.stroke(path, with: .color(color.opacity(0.8)), lineWidth: 1)
+    private func snapPoint(_ point: CGPoint, spacing: CGFloat) -> CGPoint {
+        let sx = round(point.x / spacing) * spacing
+        let sy = round(point.y / spacing) * spacing
+        return CGPoint(x: sx, y: sy)
     }
 }
 
-private struct TrajectoryLegendView: View {
+private struct TrackStep {
+    let t: Int
+    let x: Float
+    let y: Float
+    let r: Float
+    let theta: Float
+    let speed: Float
+    let energy: Float?
+    let bin: Int?
+    let spiked: Bool
+}
+
+private struct TrackLegendView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             legendRow(color: .cyan, label: "Boundary arc", dashed: false, width: 2)
             legendRow(color: .secondary, label: "Grid dots", dashed: false, width: 0)
-            legendRow(color: .blue, label: "Trajectory", dashed: false, width: 2)
-            legendRow(color: .red, label: "Spike jump", dashed: false, width: 3)
+            legendRow(color: .blue, label: "Segment", dashed: false, width: 2)
+            legendRow(color: .red, label: "Spike", dashed: false, width: 3)
             legendRow(color: .gray, label: "Projection", dashed: true, width: 1)
         }
         .font(.caption2)
@@ -805,93 +871,6 @@ private struct TrajectoryLegendView: View {
                 .foregroundColor(color)
                 .frame(width: 18, height: 6)
             Text(label)
-        }
-    }
-}
-
-private struct TraceColumnView: View {
-    let trace: LearningLogPayload.Trace
-
-    var body: some View {
-        let steps = trace.steps.suffix(16)
-        let rVals = steps.map { Double($0.r) }
-        let tVals = steps.map { Double($0.theta) }
-        let eVals = steps.map { Double($0.energy) }
-        let vVals = steps.map { Double($0.V) }
-        let speedVals = steps.map { Double($0.speed) }
-        let radialVals = steps.map { Double($0.radialSpeed) }
-
-        return VStack(alignment: .leading, spacing: 6) {
-            Text("Stream \(trace.id)")
-                .font(.subheadline)
-            HStack(spacing: 8) {
-                MiniMetricChart(title: "r(t)", values: rVals, color: .blue)
-                MiniMetricChart(title: "θ(t)", values: tVals, color: .teal)
-            }
-            HStack(spacing: 8) {
-                MiniMetricChart(title: "E(t)", values: eVals, color: .orange)
-                MiniMetricChart(title: "V(t)", values: vVals, color: .purple)
-            }
-            HStack(spacing: 8) {
-                MiniMetricChart(title: "speed", values: speedVals, color: .gray)
-                MiniMetricChart(title: "radial", values: radialVals, color: .green)
-            }
-            TraceStepsTable(steps: Array(steps.suffix(10)))
-        }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
-        .frame(width: 220)
-    }
-}
-
-private struct MiniMetricChart: View {
-    let title: String
-    let values: [Double]
-    let color: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            LineChart(values: values, color: color)
-                .frame(height: 36)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-private struct TraceStepsTable: View {
-    let steps: [LearningLogPayload.TraceStep]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Steps")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
-                GridRow {
-                    Text("t").foregroundColor(.secondary)
-                    Text("r").foregroundColor(.secondary)
-                    Text("θ").foregroundColor(.secondary)
-                    Text("E").foregroundColor(.secondary)
-                    Text("V").foregroundColor(.secondary)
-                    Text("S").foregroundColor(.secondary)
-                    Text("bin").foregroundColor(.secondary)
-                }
-                ForEach(steps, id: \.t) { step in
-                    GridRow {
-                        Text("\(step.t)")
-                        Text(String(format: "%.2f", step.r))
-                        Text(String(format: "%.2f", step.theta))
-                        Text(String(format: "%.1f", step.energy))
-                        Text(String(format: "%.2f", step.V))
-                        Text(step.spiked ? "Y" : "-")
-                        Text(step.bin.map(String.init) ?? "-")
-                    }
-                }
-            }
-            .font(.caption2.monospacedDigit())
         }
     }
 }
