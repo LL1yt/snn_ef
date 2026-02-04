@@ -144,6 +144,11 @@ public final class FlowLearningLoop {
         var totalSpikes = 0
         var totalParticleSteps = 0
         let initialParticleCount = seeds.count
+        let trackedIDs = Array(seeds.prefix(3).map { $0.id })
+        var traceSteps: [Int: [TraceStep]] = [:]
+        var pathPoints: [Int: [PathPoint]] = [:]
+        for id in trackedIDs { traceSteps[id] = [] }
+        for id in trackedIDs { pathPoints[id] = [] }
 
         // Store initial bin indices for alignment weight
         var initialBins: [Int: Int] = [:]
@@ -162,6 +167,35 @@ public final class FlowLearningLoop {
                 totalParticleSteps += 1
                 if event.spiked {
                     totalSpikes += 1
+                }
+                if traceSteps[event.id] != nil {
+                    let r = length(event.pos)
+                    let theta = atan2(event.pos.y, event.pos.x)
+                    let speed = length(event.vel)
+                    let dir = normalizeOrZero(event.pos)
+                    let radialSpeed = (dir.x * event.vel.x) + (dir.y * event.vel.y)
+                    let stepInfo = TraceStep(
+                        t: step,
+                        r: r,
+                        theta: theta,
+                        energy: event.energy,
+                        V: event.V,
+                        spiked: event.spiked,
+                        bin: event.projectedBin,
+                        speed: speed,
+                        radialSpeed: radialSpeed
+                    )
+                    traceSteps[event.id]?.append(stepInfo)
+                    let point = PathPoint(
+                        t: step,
+                        x: event.pos.x,
+                        y: event.pos.y,
+                        spiked: event.spiked,
+                        bin: event.projectedBin,
+                        speed: speed,
+                        radialSpeed: radialSpeed
+                    )
+                    pathPoints[event.id]?.append(point)
                 }
                 if let bin = event.projectedBin {
                     let completion = CompletionEvent(
@@ -278,7 +312,15 @@ public final class FlowLearningLoop {
         )
 
 #if canImport(SharedInfrastructure)
-        emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets)
+        let traces = trackedIDs.compactMap { id -> LearningLogPayload.Trace? in
+            guard let steps = traceSteps[id] else { return nil }
+            return LearningLogPayload.Trace(id: id, steps: steps)
+        }
+        let paths = trackedIDs.compactMap { id -> LearningLogPayload.Path? in
+            guard let points = pathPoints[id] else { return nil }
+            return LearningLogPayload.Path(id: id, points: points)
+        }
+        emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets, traces: traces, paths: paths)
 #endif
 
         return metrics
@@ -357,7 +399,9 @@ public final class FlowLearningLoop {
         metrics: LearningMetrics,
         params: LearnableParameters,
         yHat: [Float],
-        targets: [Float]
+        targets: [Float],
+        traces: [LearningLogPayload.Trace],
+        paths: [LearningLogPayload.Path]
     ) {
         let gainCount = Float(max(params.gains.count, 1))
         let gainMean = params.gains.reduce(0, +) / gainCount
@@ -378,7 +422,7 @@ public final class FlowLearningLoop {
             epoch: epoch,
             loss: .init(total: metrics.totalLoss, bins: metrics.binLoss, spike: metrics.spikeLoss, boundary: metrics.boundaryLoss),
             rates: .init(spike: metrics.spikeRate, completion: metrics.completionRate),
-            radius: .init(meanMiss: metrics.meanRadialMiss),
+            radius: .init(meanMiss: metrics.meanRadialMiss, R: flowConfig.radius),
             params: .init(
                 lif: params.lifThreshold,
                 radialBias: params.radialBias,
@@ -393,7 +437,9 @@ public final class FlowLearningLoop {
                 min: metrics.yHatStats.min,
                 max: metrics.yHatStats.max
             ),
-            histogram: histogram
+            histogram: histogram,
+            traces: traces,
+            paths: paths
         )
 
         let encoder = JSONEncoder()
@@ -407,10 +453,32 @@ public final class FlowLearningLoop {
     private struct LearningLogPayload: Codable {
         struct Loss: Codable { let total: Float; let bins: Float; let spike: Float; let boundary: Float }
         struct Rates: Codable { let spike: Float; let completion: Float }
-        struct Radius: Codable { let meanMiss: Float }
+        struct Radius: Codable { let meanMiss: Float; let R: Float }
         struct Params: Codable { let lif: Float; let radialBias: Float; let spikeKick: Float; let gainMean: Float; let gainVariance: Float }
         struct Bins: Codable { let nonzero: Int; let mean: Float; let variance: Float; let min: Float; let max: Float }
         struct Histogram: Codable { let yHat: [Float]; let target: [Float]? }
+        struct TraceStep: Codable {
+            let t: Int
+            let r: Float
+            let theta: Float
+            let energy: Float
+            let V: Float
+            let spiked: Bool
+            let bin: Int?
+            let speed: Float
+            let radialSpeed: Float
+        }
+        struct Trace: Codable { let id: Int; let steps: [TraceStep] }
+        struct PathPoint: Codable {
+            let t: Int
+            let x: Float
+            let y: Float
+            let spiked: Bool
+            let bin: Int?
+            let speed: Float
+            let radialSpeed: Float
+        }
+        struct Path: Codable { let id: Int; let points: [PathPoint] }
 
         let epoch: Int
         let loss: Loss
@@ -419,6 +487,11 @@ public final class FlowLearningLoop {
         let params: Params
         let bins: Bins
         let histogram: Histogram?
+        let traces: [Trace]
+        let paths: [Path]
     }
+
+    private typealias TraceStep = LearningLogPayload.TraceStep
+    private typealias PathPoint = LearningLogPayload.PathPoint
 #endif
 }

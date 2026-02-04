@@ -10,8 +10,13 @@ Scope: visualize learning progress (metrics + parameters + bins) alongside exist
 - Show output histogram and target histogram (bins) to see convergence.
 - Make the layout wide-first: prioritize horizontal space over vertical stacking.
 - Explain the math dynamics on a few tracked streams step-by-step (no circle rendering).
+- Allow epoch-by-epoch scrubbing (manual step-through).
+- Provide a physics-friendly view: show actual trajectory, boundary, and spike jumps visually.
 - Work in headless-safe mode (no UI required for CLI/tests).
 - Use existing logging/snapshot infrastructure; no new CLI flags.
+    - Boundary rendered as a sector arc (not full circle).
+    - Grid rendered as dot lattice.
+    - Encodings via color, thickness, vector direction, line style; include a legend.
 
 ## Non-goals (v0)
 - No GPU visualization of gradients.
@@ -23,6 +28,7 @@ Scope: visualize learning progress (metrics + parameters + bins) alongside exist
 2) **Parameters** (gains + scalars).
 3) **Histogram**: output bins vs target bins (if available).
 4) **Tracked dynamics** for 3 streams (per-step r, θ, E, V, spike, speed).
+5) **Trajectory points** for 3 streams (x,y per step) to render a path and spike jumps.
 
 Primary pipeline:
 - Learning loop emits **LearningMetrics** per epoch.
@@ -39,6 +45,7 @@ Primary pipeline:
   - params: lifThreshold, radialBias, spikeKick, gainMean, gainVariance
   - binsSummary: nonzeroBins, yHatStats (mean/var/min/max)
   - traces: up to 3 tracked streams with per-step dynamics
+  - path: per-step positions for 3 tracked streams (x,y), spike flag, projected bin
 - Keep payload concise and flat for easy decoding in UI.
 
 ### B) Snapshot schema (optional for v0.1)
@@ -53,22 +60,33 @@ Primary pipeline:
 ### View: Learning Overview Panel (wide layout)
 Placement: wide panel (primary content), minimal vertical stacking.
 
-Layout (left → right):
-1) **Metrics column** (compact charts, 2–3 rows)
-   - Loss group: total, bins, spike, boundary (sparklines)
-   - Rates group: spike, completion, mean radial miss
-   - Parameters row: lif, radial bias, spike kick, gain mean/var
-2) **Histogram column** (wide)
-   - Output vs target bins (downsampled/top-k)
-3) **Dynamics column** (math-first, step-by-step for 3 streams)
-   - Per-stream small multiple charts for r(t), θ(t), E(t), V(t)
-   - Step table (last N steps) with spike flags + projected bin
+Layout (2 rows, no horizontal scroll):
+Row 1 (wide):
+- **Trajectory** (≈60% width)
+- **Histogram** (≈40% width)
+
+Row 2 (compact):
+- **Metrics card**: loss + rates sparklines
+- **Parameters card**
+- **Dynamics card**: 3 stream columns + step table (last 10 steps)
+
+Trajectory specifics:
+- boundary as sector arc + dot grid background
+- spikes as sharp jump segments (highlighted color + thicker stroke)
+- if particle didn't reach boundary: dashed projection line to boundary
+- vector arrowheads for direction (last segment)
+- current step marker and step number
+- legend in corner: color/line/width meanings
+- optional **visual snap-to-grid** (UI-only) for points/segments
 
 No circle/ring rendering in this panel.
 
 ### Interaction
 - Toggle panel on/off.
 - Pause UI updates (if running heavy training) to reduce overhead.
+- Epoch scrubber (slider) to browse epochs; manual prev/next buttons.
+- Window resizable; UI scales horizontally, fixed row heights.
+- Visual snap-to-grid toggle (UI only, no effect on simulation).
 
 ## Implementation steps
 
@@ -96,14 +114,22 @@ No circle/ring rendering in this panel.
   - t (step), r, theta, energy, V, spiked, bin, speed, radialSpeed
 - Emit these in `trainer.loop` payload as `traces`.
 
-### Step 6: Wide layout panel (new)
+### Step 6: Trajectory traces (new)
+- Record 2D position per step for the same tracked streams.
+- Add optional projection info (if r < R at end of epoch) for dashed line to boundary.
+- Emit as `paths` array with (t, x, y, spiked, projectedBin, speed, radialSpeed).
+
+### Step 7: Wide layout panel (new)
 - Replace vertical stack with `HStack` layout:
   - left charts (compact grid)
   - center histogram
   - right dynamics traces
+- add trajectory column with 2D path view and boundary/grid.
+- add epoch scrubber (slider + prev/next).
 - Use fixed heights and flexible widths to avoid vertical overflow.
+ - Reflow into 2 rows (Trajectory + Histogram on top; Metrics/Params/Dynamics on bottom).
 
-### Step 7: Snapshot (optional v0.1)
+### Step 8: Snapshot (optional v0.1)
 - Extend `PipelineSnapshot` JSON to include latest learning summary.
 - UI can optionally read from snapshot on startup for warm state.
 
@@ -125,6 +151,9 @@ No circle/ring rendering in this panel.
   "bins": {"nonzero": 154, "mean": 0.92, "var": 0.11, "min": 0.0, "max": 3.2},
   "traces": [
     {"id": 0, "steps": [{"t": 0, "r": 0.9, "theta": 0.1, "E": 12.0, "V": 0.2, "spike": false, "bin": null, "speed": 0.2, "radial_speed": 0.1}]}
+  ],
+  "paths": [
+    {"id": 0, "points": [{"t": 0, "x": 0.8, "y": 0.1, "spike": false, "bin": null, "speed": 0.2, "radial_speed": 0.1}]}
   ]
 }
 ```
@@ -134,6 +163,8 @@ No circle/ring rendering in this panel.
 - Parameters update visually per epoch.
 - Histogram view shows output vs target (or at least output + summary).
 - Per-step dynamics for 3 streams visible and readable (no circles).
+- Trajectory view shows path, boundary, spike jumps, and projection to boundary.
+- Epoch scrubber allows reviewing previous epochs without restarting.
 - Layout stays within window height at default sizes.
 - No impact on headless/CLI; learning still runs without UI.
 
@@ -142,3 +173,6 @@ No circle/ring rendering in this panel.
 - For large B, render only top-k bins or downsample to 128.
 - Logging payload should stay small to avoid log I/O bottlenecks.
 - Traces must be compact: cap steps to `steps_per_epoch` and max streams = 3.
+- Trajectory rendering should be lightweight: use Canvas and decimate points if needed.
+- Legend must remain minimal; prefer 4–6 symbols max.
+- Visual snap-to-grid is UI-only (no changes to simulation).
