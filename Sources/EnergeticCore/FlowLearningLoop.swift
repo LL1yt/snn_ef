@@ -263,11 +263,7 @@ public final class FlowLearningLoop {
         // Update router config with new parameters (for next epoch)
         updateRouterConfig()
 
-#if canImport(SharedInfrastructure)
-        emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets)
-#endif
-
-        return LearningMetrics(
+        let metrics = LearningMetrics(
             epoch: epoch,
             totalLoss: totalLoss,
             binLoss: binLoss,
@@ -280,6 +276,12 @@ public final class FlowLearningLoop {
             yHatStats: yHatStats,
             paramDeltas: paramDeltas
         )
+
+#if canImport(SharedInfrastructure)
+        emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets)
+#endif
+
+        return metrics
     }
 
     /// Returns current learnable parameters

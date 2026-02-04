@@ -8,6 +8,8 @@ Scope: visualize learning progress (metrics + parameters + bins) alongside exist
 - Show learning metrics over epochs (total loss, bin loss, spike loss, boundary loss).
 - Show current parameters (lif threshold, radial bias, spike kick, gain stats).
 - Show output histogram and target histogram (bins) to see convergence.
+- Make the layout wide-first: prioritize horizontal space over vertical stacking.
+- Explain the math dynamics on a few tracked streams step-by-step (no circle rendering).
 - Work in headless-safe mode (no UI required for CLI/tests).
 - Use existing logging/snapshot infrastructure; no new CLI flags.
 
@@ -20,6 +22,7 @@ Scope: visualize learning progress (metrics + parameters + bins) alongside exist
 1) **Learning metrics** emitted per epoch.
 2) **Parameters** (gains + scalars).
 3) **Histogram**: output bins vs target bins (if available).
+4) **Tracked dynamics** for 3 streams (per-step r, θ, E, V, spike, speed).
 
 Primary pipeline:
 - Learning loop emits **LearningMetrics** per epoch.
@@ -35,6 +38,7 @@ Primary pipeline:
   - spikeRate, completionRate, meanRadialMiss
   - params: lifThreshold, radialBias, spikeKick, gainMean, gainVariance
   - binsSummary: nonzeroBins, yHatStats (mean/var/min/max)
+  - traces: up to 3 tracked streams with per-step dynamics
 - Keep payload concise and flat for easy decoding in UI.
 
 ### B) Snapshot schema (optional for v0.1)
@@ -46,30 +50,21 @@ Primary pipeline:
 
 ## UI plan
 
-### View: Learning Overview Panel
-Placement: side panel or overlay in EnergeticUI.
+### View: Learning Overview Panel (wide layout)
+Placement: wide panel (primary content), minimal vertical stacking.
 
-Elements (top to bottom):
-1) **Epoch & Status**
-   - Epoch number, “learning enabled” indicator.
-2) **Loss charts** (line graphs)
-   - Total loss
-   - Bin loss
-   - Spike loss
-   - Boundary loss
-   (Use shared x-axis; show last N epochs, e.g. 200)
-3) **Spike / Completion**
-   - Spike rate (line)
-   - Completion rate (line)
-   - Mean radial miss (line)
-4) **Parameters**
-   - LIF threshold
-   - Radial bias
-   - Spike kick
-   - Gain mean/variance
-5) **Histogram**
-   - Two overlaid bars: output bins vs target bins
-   - Optional smoothing; show top-k bins if B is large
+Layout (left → right):
+1) **Metrics column** (compact charts, 2–3 rows)
+   - Loss group: total, bins, spike, boundary (sparklines)
+   - Rates group: spike, completion, mean radial miss
+   - Parameters row: lif, radial bias, spike kick, gain mean/var
+2) **Histogram column** (wide)
+   - Output vs target bins (downsampled/top-k)
+3) **Dynamics column** (math-first, step-by-step for 3 streams)
+   - Per-stream small multiple charts for r(t), θ(t), E(t), V(t)
+   - Step table (last N steps) with spike flags + projected bin
+
+No circle/ring rendering in this panel.
 
 ### Interaction
 - Toggle panel on/off.
@@ -95,7 +90,20 @@ Elements (top to bottom):
 - Plot output bins (yHat) vs target bins.
 - If bins are huge, show top-k or downsample.
 
-### Step 5: Snapshot (optional v0.1)
+### Step 5: Dynamics traces (new)
+- In `FlowLearningLoop`, track up to 3 stream IDs (e.g., first 3 seeds).
+- For each step, record compact dynamics:
+  - t (step), r, theta, energy, V, spiked, bin, speed, radialSpeed
+- Emit these in `trainer.loop` payload as `traces`.
+
+### Step 6: Wide layout panel (new)
+- Replace vertical stack with `HStack` layout:
+  - left charts (compact grid)
+  - center histogram
+  - right dynamics traces
+- Use fixed heights and flexible widths to avoid vertical overflow.
+
+### Step 7: Snapshot (optional v0.1)
 - Extend `PipelineSnapshot` JSON to include latest learning summary.
 - UI can optionally read from snapshot on startup for warm state.
 
@@ -114,7 +122,10 @@ Elements (top to bottom):
   "rates": {"spike": 0.18, "completion": 0.91},
   "radius": {"mean_miss": 0.04},
   "params": {"lif": 0.83, "radial_bias": 0.22, "spike_kick": 0.62, "gain_mean": 1.12, "gain_var": 0.08},
-  "bins": {"nonzero": 154, "mean": 0.92, "var": 0.11, "min": 0.0, "max": 3.2}
+  "bins": {"nonzero": 154, "mean": 0.92, "var": 0.11, "min": 0.0, "max": 3.2},
+  "traces": [
+    {"id": 0, "steps": [{"t": 0, "r": 0.9, "theta": 0.1, "E": 12.0, "V": 0.2, "spike": false, "bin": null, "speed": 0.2, "radial_speed": 0.1}]}
+  ]
 }
 ```
 
@@ -122,10 +133,12 @@ Elements (top to bottom):
 - UI shows live curves for loss + spike/completion metrics.
 - Parameters update visually per epoch.
 - Histogram view shows output vs target (or at least output + summary).
+- Per-step dynamics for 3 streams visible and readable (no circles).
+- Layout stays within window height at default sizes.
 - No impact on headless/CLI; learning still runs without UI.
 
 ## Risks / notes
 - Learning may be slower if UI processes too much data — use ring buffers and sample bins.
 - For large B, render only top-k bins or downsample to 128.
 - Logging payload should stay small to avoid log I/O bottlenecks.
-
+- Traces must be compact: cap steps to `steps_per_epoch` and max streams = 3.
