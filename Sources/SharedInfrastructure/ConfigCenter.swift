@@ -601,11 +601,13 @@ public struct ConfigRoot: Decodable {
                     }
                 }
 
-                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
+                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
                     self.enabled = enabled
                     self.epochs = epochs
                     self.stepsPerEpoch = stepsPerEpoch
                     self.targetSpikeRate = targetSpikeRate
+                    self.dataset = dataset
+                    self.negative = negative
                     self.lr = lr
                     self.weights = weights
                     self.bounds = bounds

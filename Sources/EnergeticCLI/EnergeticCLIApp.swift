@@ -161,32 +161,29 @@ struct EnergeticCLI {
             seed: UInt64(snapshot.root.seed)
         )
 
-        // Get input energies from capsule
-        let exampleText = snapshot.root.capsule.pipelineExampleText.isEmpty ? "Hello, Energetic Router!" : snapshot.root.capsule.pipelineExampleText
-        let inputData = Data(exampleText.utf8)
-        let (batch, _) = try! CapsuleBridge.makeEnergies(from: inputData, config: snapshot.root.capsule)
-        let energies = batch.energies.map { Float($0) }
+        let datasetConfig = snapshot.root.router.flow.learning.dataset
+        let useDataset = datasetPath != nil || !datasetConfig.localPath.isEmpty
 
-        // Load or create targets
-        let targets: [Float]
-        let targetConfig = snapshot.root.router.flow.learning.targets
-        do {
-            if targetConfig.type == "capsule-digits" {
-                targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
-                LoggingHub.emit(process: "cli.main", level: .info, message: "Using capsule-digits targets")
-            } else if let path = targetConfig.path {
-                if path.hasSuffix(".json") {
-                    targets = try TargetLoader.fromJSONFile(path: path, bins: flowCfg.bins)
-                } else {
-                    targets = try TargetLoader.fromCSVFile(path: path, bins: flowCfg.bins)
-                }
-                LoggingHub.emit(process: "cli.main", level: .info, message: "Loaded targets from \(path)")
-            } else {
-                Diagnostics.fail("Target type 'file' requires a path", processID: processID)
+        var trainSamples: [LogiQASample] = []
+        if useDataset {
+            let trainPath = datasetPath ?? datasetConfig.localPath
+            do {
+                trainSamples = try LogiQADatasetLoader.loadJSONL(
+                    from: trainPath,
+                    limit: datasetConfig.trainLimit,
+                    shuffle: datasetConfig.shuffle,
+                    seed: UInt64(datasetConfig.seed)
+                )
+                LoggingHub.emit(process: "cli.main", level: .info, message: "Loaded LogiQA train samples: \(trainSamples.count)")
+            } catch {
+                Diagnostics.fail("Failed to load dataset: \(error.localizedDescription)", processID: processID)
             }
-        } catch {
-            Diagnostics.fail("Failed to load targets: \(error.localizedDescription)", processID: processID)
         }
+
+        // Fallback sample if dataset not provided
+        let exampleText = snapshot.root.capsule.pipelineExampleText.isEmpty ? "Hello, Energetic Router!" : snapshot.root.capsule.pipelineExampleText
+        let fallbackInput = exampleText
+        let fallbackAnswer = exampleText
 
         // Checkpoints directory
         let checkpointsDir = URL(fileURLWithPath: snapshot.root.paths.checkpointsDir)
@@ -196,6 +193,15 @@ struct EnergeticCLI {
 
         // Training loop
         for epoch in 0..<epochs {
+            let (energies, targets) = makeTrainingPair(
+                epoch: epoch,
+                samples: trainSamples,
+                fallbackInput: fallbackInput,
+                fallbackAnswer: fallbackAnswer,
+                capsuleConfig: snapshot.root.capsule,
+                bins: flowCfg.bins,
+                processID: processID
+            )
             let metrics = learningLoop.runEpoch(epoch: epoch, energies: energies, targets: targets)
             allMetrics.append(metrics)
 
@@ -266,5 +272,54 @@ struct EnergeticCLI {
           energetic-cli run
           energetic-cli learn --epochs 100 --save-every 20
         """)
+    }
+
+    private static func makeTrainingPair(
+        epoch: Int,
+        samples: [LogiQASample],
+        fallbackInput: String,
+        fallbackAnswer: String,
+        capsuleConfig: ConfigRoot.Capsule,
+        bins: Int,
+        processID: String
+    ) -> (energies: [Float], targets: [Float]) {
+        let inputText: String
+        let answerText: String
+        if samples.isEmpty {
+            inputText = fallbackInput
+            answerText = fallbackAnswer
+        } else {
+            let idx = epoch % samples.count
+            let sample = samples[idx]
+            inputText = sample.input_text
+            answerText = sample.answer_text
+        }
+
+        let inputData = truncateIfNeeded(Data(inputText.utf8), maxBytes: capsuleConfig.maxInputBytes)
+        let answerData = truncateIfNeeded(Data(answerText.utf8), maxBytes: capsuleConfig.maxInputBytes)
+
+        let inputEnergies: [Float]
+        do {
+            let (batch, _) = try CapsuleBridge.makeEnergies(from: inputData, config: capsuleConfig)
+            inputEnergies = batch.energies.map { Float($0) }
+        } catch {
+            Diagnostics.fail("Failed to encode input text: \(error.localizedDescription)", processID: processID)
+        }
+
+        let targetEnergies: [Float]
+        do {
+            let (batch, _) = try CapsuleBridge.makeEnergies(from: answerData, config: capsuleConfig)
+            targetEnergies = batch.energies.map { Float($0) }
+        } catch {
+            Diagnostics.fail("Failed to encode answer text: \(error.localizedDescription)", processID: processID)
+        }
+
+        let targets = TargetLoader.fromCapsuleDigits(energies: targetEnergies, bins: bins)
+        return (inputEnergies, targets)
+    }
+
+    private static func truncateIfNeeded(_ data: Data, maxBytes: Int) -> Data {
+        guard data.count > maxBytes else { return data }
+        return Data(data.prefix(maxBytes))
     }
 }
