@@ -24,13 +24,15 @@ public struct FlowConfig: Sendable, Equatable {
 
     public struct Dynamics: Sendable, Equatable {
         public let radialBias: Float
+        public let spikeKick: Float
         public let noiseStdPos: Float
         public let noiseStdDir: Float
         public let maxSpeed: Float
         public let energyAlpha: Float
         public let energyFloor: Float
-        public init(radialBias: Float, noiseStdPos: Float, noiseStdDir: Float, maxSpeed: Float, energyAlpha: Float, energyFloor: Float) {
+        public init(radialBias: Float, spikeKick: Float, noiseStdPos: Float, noiseStdDir: Float, maxSpeed: Float, energyAlpha: Float, energyFloor: Float) {
             self.radialBias = radialBias
+            self.spikeKick = spikeKick
             self.noiseStdPos = noiseStdPos
             self.noiseStdDir = noiseStdDir
             self.maxSpeed = maxSpeed
@@ -119,6 +121,7 @@ extension FlowConfig {
             ),
             dynamics: .init(
                 radialBias: Float(f.dynamics.radialBias),
+                spikeKick: Float(f.dynamics.spikeKick),
                 noiseStdPos: Float(f.dynamics.noiseStdPos),
                 noiseStdDir: Float(f.dynamics.noiseStdDir),
                 maxSpeed: Float(f.dynamics.maxSpeed),

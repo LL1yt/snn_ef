@@ -16,14 +16,21 @@ public enum FlowProjector {
 
     /// Projects particle to boundary bin and accumulates its energy, returning true if removed.
     @inline(__always)
-    public static func projectIfNeeded(_ p: inout FlowParticle, cfg: FlowConfig, outputs: inout [Float]) -> Bool {
+    public static func projectIfNeeded(_ p: inout FlowParticle, cfg: FlowConfig, outputs: inout [Float], gains: [Float]? = nil) -> Bool {
         let r = length(p.pos)
         if r >= cfg.radius {
             let theta = atan2(p.pos.y, p.pos.x)
             let b = binIndex(theta: theta, bins: cfg.bins)
-            outputs[b] += max(0, p.energy)
+            let g = gain(for: b, bins: cfg.bins, gains: gains)
+            outputs[b] += g * max(0, p.energy)
             return true
         }
         return false
+    }
+
+    @inline(__always)
+    public static func gain(for bin: Int, bins: Int, gains: [Float]?) -> Float {
+        guard let gains, gains.count == bins else { return 1.0 }
+        return gains[bin]
     }
 }

@@ -10,7 +10,7 @@ final class FlowSeedsTests: XCTestCase {
             seedLayout: "ring",
             seedRadius: 2,
             lif: .init(decay: 0.9, threshold: 0.5, resetValue: 0.0, surrogate: "fast_sigmoid"),
-            dynamics: .init(radialBias: 0.1, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 0.9, energyFloor: 1e-5)
+            dynamics: .init(radialBias: 0.1, spikeKick: 0.0, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 0.9, energyFloor: 1e-5)
         )
         let energies: [UInt16] = [1,2,3,4]
         let seeds = FlowSeeds.makeSeeds(energies: energies, cfg: cfg, seed: 0)

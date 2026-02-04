@@ -65,6 +65,7 @@ router:
       surrogate: "fast_sigmoid"
     dynamics:
       radial_bias: 0.15
+      spike_kick: 0.5
       noise_std_pos: 0.01
       noise_std_dir: 0.05
       max_speed: 1.0

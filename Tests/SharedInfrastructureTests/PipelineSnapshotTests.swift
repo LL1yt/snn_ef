@@ -82,6 +82,7 @@ final class PipelineSnapshotTests: XCTestCase {
                 lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
                 dynamics: .init(
                     radialBias: 0.1,
+                    spikeKick: 0.5,
                     noiseStdPos: 0.0,
                     noiseStdDir: 0.0,
                     maxSpeed: 1.0,

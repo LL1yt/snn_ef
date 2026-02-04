@@ -11,7 +11,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             seedLayout: "ring",
             seedRadius: 1.0,
             lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
-            dynamics: .init(radialBias: 0.15, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
+            dynamics: .init(radialBias: 0.15, spikeKick: 0.5, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
         )
 
         let learningCfg = LearningConfig(
@@ -89,7 +89,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             seedLayout: "ring",
             seedRadius: 0.5,
             lif: .init(decay: 0.9, threshold: 0.7, resetValue: 0.0, surrogate: "fast_sigmoid"),
-            dynamics: .init(radialBias: 0.1, noiseStdPos: 0.01, noiseStdDir: 0.03, maxSpeed: 0.8, energyAlpha: 0.95, energyFloor: 1e-5)
+            dynamics: .init(radialBias: 0.1, spikeKick: 0.4, noiseStdPos: 0.01, noiseStdDir: 0.03, maxSpeed: 0.8, energyAlpha: 0.95, energyFloor: 1e-5)
         )
 
         let learningCfg = LearningConfig(
@@ -146,7 +146,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             seedLayout: "ring",
             seedRadius: 0.5,
             lif: .init(decay: 0.9, threshold: 0.75, resetValue: 0.0, surrogate: "fast_sigmoid"),
-            dynamics: .init(radialBias: 0.12, noiseStdPos: 0.01, noiseStdDir: 0.04, maxSpeed: 0.9, energyAlpha: 0.95, energyFloor: 1e-5)
+            dynamics: .init(radialBias: 0.12, spikeKick: 0.45, noiseStdPos: 0.01, noiseStdDir: 0.04, maxSpeed: 0.9, energyAlpha: 0.95, energyFloor: 1e-5)
         )
 
         let learningCfg = LearningConfig(
@@ -221,7 +221,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             seedLayout: "ring",
             seedRadius: 0.8,
             lif: .init(decay: 0.88, threshold: 0.95, resetValue: 0.0, surrogate: "fast_sigmoid"),  // High threshold
-            dynamics: .init(radialBias: 0.1, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
+            dynamics: .init(radialBias: 0.1, spikeKick: 0.5, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
         )
 
         let learningCfg = LearningConfig(
@@ -263,5 +263,51 @@ final class FlowLearningIntegrationTests: XCTestCase {
         if metrics.spikeRate < learningCfg.targetSpikeRate - 0.02 {
             XCTAssertLessThanOrEqual(finalThreshold, initialThreshold)
         }
+    }
+
+    func testLearningUpdatesGains() {
+        let flowCfg = FlowConfig(
+            T: 1,
+            radius: 0.5,
+            bins: 4,
+            seedLayout: "ring",
+            seedRadius: 0.49,
+            lif: .init(decay: 0.9, threshold: 0.6, resetValue: 0.0, surrogate: "fast_sigmoid"),
+            dynamics: .init(radialBias: 0.0, spikeKick: 0.0, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 1.0, energyFloor: 0.0)
+        )
+
+        let learningCfg = LearningConfig(
+            enabled: true,
+            epochs: 1,
+            stepsPerEpoch: 1,
+            targetSpikeRate: 0.1,
+            learningRates: .init(gain: 0.01, lif: 0.0, dynamics: 0.0),
+            lossWeights: .init(spike: 0.0, boundary: 0.0),
+            bounds: .init(
+                theta: (0.1, 1.0),
+                radialBias: (0.0, 1.0),
+                spikeKick: (0.0, 1.0),
+                gain: (0.1, 2.0)
+            ),
+            aggregatorConfig: AggregatorConfig(
+                sigmaR: 1.0,
+                sigmaE: 1.0,
+                alpha: 1.0,
+                beta: 1.0,
+                gamma: 0.0,
+                tau: 1.0,
+                radius: 0.5
+            )
+        )
+
+        let learningLoop = FlowLearningLoop(flowConfig: flowCfg, learningConfig: learningCfg, seed: 7)
+        let energies: [Float] = [5, 4, 3, 2]
+        let targets: [Float] = [0, 0, 0, 0]
+
+        let before = learningLoop.getParameters().gains
+        _ = learningLoop.runEpoch(epoch: 0, energies: energies, targets: targets)
+        let after = learningLoop.getParameters().gains
+
+        XCTAssertNotEqual(before, after)
     }
 }

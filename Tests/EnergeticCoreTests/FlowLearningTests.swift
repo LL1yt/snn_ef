@@ -25,7 +25,8 @@ final class FlowLearningTests: XCTestCase {
             completions: completions,
             targets: nil,
             config: config,
-            bins: 4
+            bins: 4,
+            gains: nil
         )
 
         XCTAssertEqual(yHat.count, 4)
@@ -58,7 +59,8 @@ final class FlowLearningTests: XCTestCase {
             completions: completions,
             targets: targets,
             config: config,
-            bins: 4
+            bins: 4,
+            gains: nil
         )
 
         // The first completion should dominate due to higher weight

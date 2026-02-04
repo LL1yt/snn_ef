@@ -129,6 +129,7 @@ router:
       surrogate: "fast_sigmoid"   # имя surrogate-функции
     dynamics:
       radial_bias: 0.15           # сила внешнего дрейфа наружу
+      spike_kick: 0.5             # масштаб импульса при спайке (≥0)
       noise_std_pos: 0.01         # шум позиции за шаг
       noise_std_dir: 0.05         # шум направления/скачка
       max_speed: 1.0              # ограничение скорости (>0)
@@ -151,7 +152,7 @@ Constraints:
 - `router.backend == "flow"`.
 - `flow.T ≥ 1`, `flow.radius > 0`, `0 ≤ seed_radius < radius`.
 - `lif.decay ∈ (0,1)`, `lif.threshold ∈ (0,1]`.
-- `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`.
+- `dynamics.spike_kick ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`.
 - `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.
 
 ---
@@ -242,6 +243,7 @@ router:
       surrogate: "fast_sigmoid"
     dynamics:
       radial_bias: 0.15
+      spike_kick: 0.5
       noise_std_pos: 0.01
       noise_std_dir: 0.05
       max_speed: 1.0

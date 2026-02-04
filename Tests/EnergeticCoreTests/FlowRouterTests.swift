@@ -10,7 +10,7 @@ final class FlowRouterTests: XCTestCase {
             seedLayout: "ring",
             seedRadius: 1,
             lif: .init(decay: 0.9, threshold: 0.3, resetValue: 0.0, surrogate: "fast_sigmoid"),
-            dynamics: .init(radialBias: 0.2, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
+            dynamics: .init(radialBias: 0.2, spikeKick: 0.5, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
         )
         let energies = [UInt16](repeating: 50, count: 6)
         let seeds = FlowSeeds.makeSeeds(energies: energies, cfg: cfg, seed: 42)

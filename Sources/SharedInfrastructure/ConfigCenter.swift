@@ -87,6 +87,9 @@ enum Validation {
             throw ConfigError.invalidFlowParameter("lif.threshold must be in (0, 1]")
         }
         // Dynamics
+        if flow.dynamics.spikeKick < 0 {
+            throw ConfigError.invalidFlowParameter("dynamics.spike_kick must be ≥ 0")
+        }
         if flow.dynamics.maxSpeed <= 0 {
             throw ConfigError.invalidFlowParameter("dynamics.max_speed must be > 0")
         }
@@ -415,6 +418,7 @@ public struct ConfigRoot: Decodable {
 
             public struct Dynamics: Decodable {
                 public let radialBias: Double
+                public let spikeKick: Double
                 public let noiseStdPos: Double
                 public let noiseStdDir: Double
                 public let maxSpeed: Double
@@ -423,6 +427,7 @@ public struct ConfigRoot: Decodable {
 
                 enum CodingKeys: String, CodingKey {
                     case radialBias = "radial_bias"
+                    case spikeKick = "spike_kick"
                     case noiseStdPos = "noise_std_pos"
                     case noiseStdDir = "noise_std_dir"
                     case maxSpeed = "max_speed"

@@ -118,7 +118,7 @@ public final class FlowLearningLoop {
             bins: flowConfig.bins,
             lifThreshold: flowConfig.lif.threshold,
             radialBias: flowConfig.dynamics.radialBias,
-            spikeKick: 0.5  // Initial spike kick value
+            spikeKick: flowConfig.dynamics.spikeKick
         )
         self.router = FlowRouter(cfg: flowConfig, seed: seed)
     }
@@ -136,6 +136,7 @@ public final class FlowLearningLoop {
             radius: flowConfig.seedRadius,
             bins: flowConfig.bins
         )
+        precondition(params.gains.count == flowConfig.bins, "gains count must match bins")
 
         // Run simulation with event tracking
         var state = FlowState(step: 0, particles: seeds, bins: flowConfig.bins)
@@ -155,7 +156,7 @@ public final class FlowLearningLoop {
         for step in 0..<learningConfig.stepsPerEpoch {
             guard !state.particles.isEmpty else { break }
 
-            let events = router.stepWithEvents(state: &state)
+            let events = router.stepWithEvents(state: &state, gains: params.gains)
 
             for event in events {
                 totalParticleSteps += 1
@@ -181,7 +182,8 @@ public final class FlowLearningLoop {
             completions: allCompletions,
             targets: targets,
             config: learningConfig.aggregatorConfig,
-            bins: flowConfig.bins
+            bins: flowConfig.bins,
+            gains: params.gains
         )
 
         // Compute losses
@@ -299,6 +301,7 @@ public final class FlowLearningLoop {
         )
         let updatedDynamics = FlowConfig.Dynamics(
             radialBias: params.radialBias,
+            spikeKick: params.spikeKick,
             noiseStdPos: flowConfig.dynamics.noiseStdPos,
             noiseStdDir: flowConfig.dynamics.noiseStdDir,
             maxSpeed: flowConfig.dynamics.maxSpeed,
@@ -314,10 +317,7 @@ public final class FlowLearningLoop {
             lif: updatedLIF,
             dynamics: updatedDynamics
         )
-        // Note: We need to preserve RNG state, so create new router with same seed would reset it.
-        // For now, we manually update the router's cfg field (requires making it mutable or using a different approach)
-        // Temporary: recreate router (loses RNG state, acceptable for v0)
-        self.router = FlowRouter(cfg: updatedConfig, seed: 0)  // TODO: preserve seed state
+        router.updateConfig(updatedConfig)
     }
 
     private func computeMeanRadialMiss(completions: [CompletionEvent], radius: Float) -> Float {

@@ -12,7 +12,7 @@ public struct FlowStepEvent: Sendable {
 
 /// Core stepper for flow-based SNN dynamics on R^2 with circular projection
 public final class FlowRouter {
-    public let cfg: FlowConfig
+    public private(set) var cfg: FlowConfig
     private var rng: FlowRNG
 
     public init(cfg: FlowConfig, seed: UInt64) {
@@ -20,8 +20,12 @@ public final class FlowRouter {
         self.rng = FlowRNG(seed: seed)
     }
 
+    public func updateConfig(_ cfg: FlowConfig) {
+        self.cfg = cfg
+    }
+
     /// Executes one simulation step in-place; removes projected/dead particles
-    public func step(state: inout FlowState) {
+    public func step(state: inout FlowState, gains: [Float]? = nil) {
         var nextParticles: [FlowParticle] = []
         nextParticles.reserveCapacity(state.particles.count)
 
@@ -51,7 +55,7 @@ public final class FlowRouter {
                 let jitterAng = rng.nextUniform(min: -Float.pi, max: Float.pi) * cfg.dynamics.noiseStdDir
                 let rot = SIMD2<Float>(cos(jitterAng), sin(jitterAng))
                 let kick = SIMD2<Float>(dir.x * rot.x - dir.y * rot.y, dir.x * rot.y + dir.y * rot.x)
-                vel += 0.5 * kick
+                vel += cfg.dynamics.spikeKick * kick
             }
             // Directional noise
             let noiseAng = rng.nextUniform(min: -Float.pi, max: Float.pi)
@@ -70,7 +74,7 @@ public final class FlowRouter {
 
             // Projection
             var removed = false
-            removed = FlowProjector.projectIfNeeded(&p, cfg: cfg, outputs: &state.outputs)
+            removed = FlowProjector.projectIfNeeded(&p, cfg: cfg, outputs: &state.outputs, gains: gains)
             if !removed { nextParticles.append(p) }
         }
 
@@ -80,7 +84,7 @@ public final class FlowRouter {
 
     /// Executes one simulation step and returns per-particle events for visualization.
     /// Updates state in-place, similar to step(state:).
-    public func stepWithEvents(state: inout FlowState) -> [FlowStepEvent] {
+    public func stepWithEvents(state: inout FlowState, gains: [Float]? = nil) -> [FlowStepEvent] {
         var nextParticles: [FlowParticle] = []
         nextParticles.reserveCapacity(state.particles.count)
         var events: [FlowStepEvent] = []
@@ -111,7 +115,7 @@ public final class FlowRouter {
                 let jitterAng = rng.nextUniform(min: -Float.pi, max: Float.pi) * cfg.dynamics.noiseStdDir
                 let rot = SIMD2<Float>(cos(jitterAng), sin(jitterAng))
                 let kick = SIMD2<Float>(dir.x * rot.x - dir.y * rot.y, dir.x * rot.y + dir.y * rot.x)
-                vel += 0.5 * kick
+                vel += cfg.dynamics.spikeKick * kick
             }
             let noiseAng = rng.nextUniform(min: -Float.pi, max: Float.pi)
             let noiseVec = SIMD2<Float>(cos(noiseAng), sin(noiseAng)) * cfg.dynamics.noiseStdPos
@@ -137,7 +141,8 @@ public final class FlowRouter {
                 let theta = atan2(p.pos.y, p.pos.x)
                 let b = FlowProjector.binIndex(theta: theta, bins: cfg.bins)
                 projectedBin = b
-                state.outputs[b] += max(0, p.energy)
+                let g = FlowProjector.gain(for: b, bins: cfg.bins, gains: gains)
+                state.outputs[b] += g * max(0, p.energy)
             } else {
                 nextParticles.append(p)
             }
@@ -151,17 +156,17 @@ public final class FlowRouter {
     }
 
     /// Runs for cfg.T steps or until no particles remain; returns filled bins
-    public func run(initial particles: [FlowParticle]) -> [Float] {
+    public func run(initial particles: [FlowParticle], gains: [Float]? = nil) -> [Float] {
         var state = FlowState(step: 0, particles: particles, bins: cfg.bins)
         var t = 0
         while t < cfg.T && !state.particles.isEmpty {
-            step(state: &state)
+            step(state: &state, gains: gains)
             t += 1
         }
         // Final projection at T for remaining particles
         if t >= cfg.T {
             for var p in state.particles {
-                _ = FlowProjector.projectIfNeeded(&p, cfg: cfg, outputs: &state.outputs)
+                _ = FlowProjector.projectIfNeeded(&p, cfg: cfg, outputs: &state.outputs, gains: gains)
             }
             state.particles.removeAll(keepingCapacity: false)
         }

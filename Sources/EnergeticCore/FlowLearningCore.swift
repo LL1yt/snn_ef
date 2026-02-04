@@ -10,7 +10,8 @@ public enum CompletionAggregator {
         completions: [CompletionEvent],
         targets: [Float]?,
         config: AggregatorConfig,
-        bins: Int
+        bins: Int,
+        gains: [Float]? = nil
     ) -> [Float] {
         var yHat = [Float](repeating: 0, count: bins)
         var binWeights = [Float](repeating: 0, count: bins)
@@ -29,14 +30,16 @@ public enum CompletionAggregator {
             let rDist = abs(r - config.radius)
             let wDist = exp(-rDist / config.sigmaR)
 
+            let adjustedEnergy = comp.energy * FlowProjector.gain(for: b, bins: bins, gains: gains)
+
             // Energy weight
             let wEnergy: Float
             if let targets = targets, targets.count == bins {
-                let eDist = abs(comp.energy - targets[b])
+                let eDist = abs(adjustedEnergy - targets[b])
                 wEnergy = exp(-eDist / config.sigmaE)
             } else {
                 // Fallback: magnitude proxy
-                wEnergy = comp.energy / (maxE + eps)
+                wEnergy = adjustedEnergy / (maxE + eps)
             }
 
             // Alignment weight (optional, uses initialBinIndex if available)
@@ -51,7 +54,7 @@ public enum CompletionAggregator {
             // Combine weights with exponents
             let w = pow(wDist, config.alpha) * pow(wEnergy, config.beta) * pow(wAlign, config.gamma)
 
-            yHat[b] += w * comp.energy
+            yHat[b] += w * adjustedEnergy
             binWeights[b] += w
         }
 
