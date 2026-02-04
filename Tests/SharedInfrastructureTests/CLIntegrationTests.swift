@@ -158,8 +158,8 @@ final class CLIntegrationTests: XCTestCase {
               target_spike_rate: 0.15
               dataset:
                 name: "logiqa"
-                local_path: "\(base.appendingPathComponent(\"prepared_train.jsonl\").path)"
-                valid_path: "\(base.appendingPathComponent(\"prepared_valid.jsonl\").path)"
+                local_path: "\(base.appendingPathComponent("prepared_train.jsonl").path)"
+                valid_path: "\(base.appendingPathComponent("prepared_valid.jsonl").path)"
                 cache_mode: "prepared"
                 train_limit: 16
                 valid_limit: 16

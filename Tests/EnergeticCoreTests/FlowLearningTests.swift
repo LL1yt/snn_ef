@@ -129,6 +129,7 @@ final class FlowLearningTests: XCTestCase {
 
         let total = LossFunctions.totalLoss(
             binLoss: binLoss,
+            negativeLoss: 0.0,
             spikeLoss: spikeLoss,
             boundaryLoss: boundaryLoss,
             spikeWeight: spikeWeight,

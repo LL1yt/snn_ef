@@ -167,6 +167,12 @@ struct EnergeticCLI {
         var trainSamples: [LogiQASample] = []
         if useDataset {
             let trainPath = datasetPath ?? datasetConfig.localPath
+            if !FileManager.default.fileExists(atPath: trainPath) {
+                Diagnostics.fail(
+                    "Dataset not found at \(trainPath). Run Tools/logiqa_prepare.swift or specify --dataset PATH.",
+                    processID: processID
+                )
+            }
             do {
                 trainSamples = try LogiQADatasetLoader.loadJSONL(
                     from: trainPath,
@@ -193,7 +199,7 @@ struct EnergeticCLI {
 
         // Training loop
         for epoch in 0..<epochs {
-            let (energies, targets) = makeTrainingPair(
+            let pair = makeTrainingPair(
                 epoch: epoch,
                 samples: trainSamples,
                 fallbackInput: fallbackInput,
@@ -202,17 +208,24 @@ struct EnergeticCLI {
                 bins: flowCfg.bins,
                 processID: processID
             )
-            let metrics = learningLoop.runEpoch(epoch: epoch, energies: energies, targets: targets)
+            let metrics = learningLoop.runEpoch(
+                epoch: epoch,
+                energies: pair.energies,
+                targets: pair.targets,
+                wrongTargets: pair.wrongTargets,
+                optionTargets: pair.optionTargets,
+                correctIndex: pair.correctIndex
+            )
             allMetrics.append(metrics)
 
             // Log progress
             LoggingHub.emit(
                 process: "trainer.loop",
                 level: .info,
-                message: "Epoch \(epoch): L=\(String(format: "%.4f", metrics.totalLoss)) L_bins=\(String(format: "%.4f", metrics.binLoss)) L_spike=\(String(format: "%.4f", metrics.spikeLoss)) L_boundary=\(String(format: "%.4f", metrics.boundaryLoss)) spike_rate=\(String(format: "%.3f", metrics.spikeRate)) completion=\(String(format: "%.3f", metrics.completionRate))"
+                message: "Epoch \(epoch): L=\(String(format: "%.4f", metrics.totalLoss)) L_bins=\(String(format: "%.4f", metrics.binLoss)) L_neg=\(String(format: "%.4f", metrics.negativeLoss)) L_spike=\(String(format: "%.4f", metrics.spikeLoss)) L_boundary=\(String(format: "%.4f", metrics.boundaryLoss)) spike_rate=\(String(format: "%.3f", metrics.spikeRate)) completion=\(String(format: "%.3f", metrics.completionRate)) opt_acc=\(String(format: "%.3f", metrics.optionAccuracy ?? -1))"
             )
 
-            print("Epoch \(epoch)/\(epochs): L=\(String(format: "%.4f", metrics.totalLoss)) bins=\(String(format: "%.4f", metrics.binLoss)) spike=\(String(format: "%.4f", metrics.spikeLoss)) boundary=\(String(format: "%.4f", metrics.boundaryLoss))")
+            print("Epoch \(epoch)/\(epochs): L=\(String(format: "%.4f", metrics.totalLoss)) bins=\(String(format: "%.4f", metrics.binLoss)) neg=\(String(format: "%.4f", metrics.negativeLoss)) spike=\(String(format: "%.4f", metrics.spikeLoss)) boundary=\(String(format: "%.4f", metrics.boundaryLoss)) opt_acc=\(String(format: "%.3f", metrics.optionAccuracy ?? -1))")
 
             // Save checkpoint periodically
             if (epoch + 1) % saveEvery == 0 || epoch == epochs - 1 {
@@ -282,17 +295,20 @@ struct EnergeticCLI {
         capsuleConfig: ConfigRoot.Capsule,
         bins: Int,
         processID: String
-    ) -> (energies: [Float], targets: [Float]) {
+    ) -> (energies: [Float], targets: [Float], wrongTargets: [[Float]], optionTargets: [[Float]], correctIndex: Int) {
         let inputText: String
         let answerText: String
+        let wrongAnswers: [String]
         if samples.isEmpty {
             inputText = fallbackInput
             answerText = fallbackAnswer
+            wrongAnswers = []
         } else {
             let idx = epoch % samples.count
             let sample = samples[idx]
             inputText = sample.input_text
             answerText = sample.answer_text
+            wrongAnswers = sample.wrong_answers
         }
 
         let inputData = truncateIfNeeded(Data(inputText.utf8), maxBytes: capsuleConfig.maxInputBytes)
@@ -315,7 +331,21 @@ struct EnergeticCLI {
         }
 
         let targets = TargetLoader.fromCapsuleDigits(energies: targetEnergies, bins: bins)
-        return (inputEnergies, targets)
+
+        var wrongTargets: [[Float]] = []
+        if !wrongAnswers.isEmpty {
+            wrongTargets.reserveCapacity(wrongAnswers.count)
+            for wrong in wrongAnswers {
+                let data = truncateIfNeeded(Data(wrong.utf8), maxBytes: capsuleConfig.maxInputBytes)
+                if let (batch, _) = try? CapsuleBridge.makeEnergies(from: data, config: capsuleConfig) {
+                    let e = batch.energies.map { Float($0) }
+                    wrongTargets.append(TargetLoader.fromCapsuleDigits(energies: e, bins: bins))
+                }
+            }
+        }
+
+        let optionTargets = [targets] + wrongTargets
+        return (inputEnergies, targets, wrongTargets, optionTargets, 0)
     }
 
     private static func truncateIfNeeded(_ data: Data, maxBytes: Int) -> Data {

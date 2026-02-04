@@ -121,12 +121,35 @@ public enum LossFunctions {
     /// Total loss: L = L_bins + w_spike * L_spike + w_boundary * L_boundary
     public static func totalLoss(
         binLoss: Float,
+        negativeLoss: Float,
         spikeLoss: Float,
         boundaryLoss: Float,
         spikeWeight: Float,
         boundaryWeight: Float
     ) -> Float {
-        return binLoss + spikeWeight * spikeLoss + boundaryWeight * boundaryLoss
+        return binLoss + negativeLoss + spikeWeight * spikeLoss + boundaryWeight * boundaryLoss
+    }
+
+    /// Negative margin loss: push yHat away from wrong targets.
+    public static func negativeMarginLoss(yHat: [Float], wrongTargets: [[Float]], margin: Float) -> Float {
+        guard !wrongTargets.isEmpty else { return 0 }
+        var total: Float = 0
+        for target in wrongTargets {
+            let d = l2Distance(yHat, target)
+            let diff = max(0, margin - d)
+            total += diff * diff
+        }
+        return total / Float(wrongTargets.count)
+    }
+
+    public static func l2Distance(_ a: [Float], _ b: [Float]) -> Float {
+        let n = min(a.count, b.count)
+        var sum: Float = 0
+        for i in 0..<n {
+            let d = a[i] - b[i]
+            sum += d * d
+        }
+        return sqrt(sum)
     }
 }
 

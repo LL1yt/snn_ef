@@ -13,6 +13,7 @@ public struct LearningConfig {
     public let targetSpikeRate: Float
     public let learningRates: LearningRates
     public let lossWeights: LossWeights
+    public let negative: NegativeConfig
     public let bounds: Bounds
     public let aggregatorConfig: AggregatorConfig
 
@@ -23,6 +24,7 @@ public struct LearningConfig {
         targetSpikeRate: Float,
         learningRates: LearningRates,
         lossWeights: LossWeights,
+        negative: NegativeConfig = .disabled,
         bounds: Bounds,
         aggregatorConfig: AggregatorConfig
     ) {
@@ -32,6 +34,7 @@ public struct LearningConfig {
         self.targetSpikeRate = targetSpikeRate
         self.learningRates = learningRates
         self.lossWeights = lossWeights
+        self.negative = negative
         self.bounds = bounds
         self.aggregatorConfig = aggregatorConfig
     }
@@ -56,6 +59,20 @@ public struct LearningConfig {
             self.spike = spike
             self.boundary = boundary
         }
+    }
+
+    public struct NegativeConfig {
+        public let enabled: Bool
+        public let weight: Float
+        public let margin: Float
+
+        public init(enabled: Bool, weight: Float, margin: Float) {
+            self.enabled = enabled
+            self.weight = weight
+            self.margin = margin
+        }
+
+        public static let disabled = NegativeConfig(enabled: false, weight: 0, margin: 0)
     }
 
     public struct Bounds {
@@ -88,6 +105,11 @@ public struct LearningConfig {
             lossWeights: .init(
                 spike: Float(learning.weights.spike),
                 boundary: Float(learning.weights.boundary)
+            ),
+            negative: .init(
+                enabled: learning.negative.enabled,
+                weight: Float(learning.negative.weight),
+                margin: Float(learning.negative.margin)
             ),
             bounds: .init(
                 theta: (Float(learning.bounds.theta[0]), Float(learning.bounds.theta[1])),
@@ -127,7 +149,10 @@ public final class FlowLearningLoop {
     public func runEpoch(
         epoch: Int,
         energies: [Float],
-        targets: [Float]
+        targets: [Float],
+        wrongTargets: [[Float]] = [],
+        optionTargets: [[Float]] = [],
+        correctIndex: Int? = nil
     ) -> LearningMetrics {
         // Create seeds from energies
         let seeds = FlowSeeds.makeSeeds(
@@ -222,16 +247,33 @@ public final class FlowLearningLoop {
 
         // Compute losses
         let binLoss = LossFunctions.binLoss(yHat: yHat, target: targets, gains: params.gains)
+        let negativeLoss: Float
+        if learningConfig.negative.enabled, !wrongTargets.isEmpty {
+            let base = LossFunctions.negativeMarginLoss(yHat: yHat, wrongTargets: wrongTargets, margin: learningConfig.negative.margin)
+            negativeLoss = base * learningConfig.negative.weight
+        } else {
+            negativeLoss = 0
+        }
         let spikeRate = totalParticleSteps > 0 ? Float(totalSpikes) / Float(totalParticleSteps) : 0
         let spikeLoss = LossFunctions.spikeRateLoss(observed: spikeRate, target: learningConfig.targetSpikeRate)
         let boundaryLoss = LossFunctions.boundaryLoss(completions: allCompletions, radius: flowConfig.radius)
         let totalLoss = LossFunctions.totalLoss(
             binLoss: binLoss,
+            negativeLoss: negativeLoss,
             spikeLoss: spikeLoss,
             boundaryLoss: boundaryLoss,
             spikeWeight: learningConfig.lossWeights.spike,
             boundaryWeight: learningConfig.lossWeights.boundary
         )
+
+        let optionAccuracy: Float?
+        if let correctIndex, !optionTargets.isEmpty {
+            let distances = optionTargets.map { LossFunctions.l2Distance(yHat, $0) }
+            let minIdx = distances.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
+            optionAccuracy = (minIdx == correctIndex) ? 1.0 : 0.0
+        } else {
+            optionAccuracy = nil
+        }
 
         // Compute metrics
         let completionRate = Float(allCompletions.count) / Float(initialParticleCount)
@@ -301,6 +343,7 @@ public final class FlowLearningLoop {
             epoch: epoch,
             totalLoss: totalLoss,
             binLoss: binLoss,
+            negativeLoss: negativeLoss,
             spikeLoss: spikeLoss,
             boundaryLoss: boundaryLoss,
             spikeRate: spikeRate,
@@ -308,7 +351,8 @@ public final class FlowLearningLoop {
             meanRadialMiss: meanRadialMiss,
             nonzeroBins: nonzeroBins,
             yHatStats: yHatStats,
-            paramDeltas: paramDeltas
+            paramDeltas: paramDeltas,
+            optionAccuracy: optionAccuracy
         )
 
 #if canImport(SharedInfrastructure)
@@ -420,9 +464,10 @@ public final class FlowLearningLoop {
 
         let payload = LearningLogPayload(
             epoch: epoch,
-            loss: .init(total: metrics.totalLoss, bins: metrics.binLoss, spike: metrics.spikeLoss, boundary: metrics.boundaryLoss),
+            loss: .init(total: metrics.totalLoss, bins: metrics.binLoss, negative: metrics.negativeLoss, spike: metrics.spikeLoss, boundary: metrics.boundaryLoss),
             rates: .init(spike: metrics.spikeRate, completion: metrics.completionRate),
             radius: .init(meanMiss: metrics.meanRadialMiss, R: flowConfig.radius),
+            optionAccuracy: metrics.optionAccuracy,
             params: .init(
                 lif: params.lifThreshold,
                 radialBias: params.radialBias,
@@ -451,7 +496,7 @@ public final class FlowLearningLoop {
     }
 
     private struct LearningLogPayload: Codable {
-        struct Loss: Codable { let total: Float; let bins: Float; let spike: Float; let boundary: Float }
+        struct Loss: Codable { let total: Float; let bins: Float; let negative: Float; let spike: Float; let boundary: Float }
         struct Rates: Codable { let spike: Float; let completion: Float }
         struct Radius: Codable { let meanMiss: Float; let R: Float }
         struct Params: Codable { let lif: Float; let radialBias: Float; let spikeKick: Float; let gainMean: Float; let gainVariance: Float }
@@ -484,6 +529,7 @@ public final class FlowLearningLoop {
         let loss: Loss
         let rates: Rates
         let radius: Radius
+        let optionAccuracy: Float?
         let params: Params
         let bins: Bins
         let histogram: Histogram?

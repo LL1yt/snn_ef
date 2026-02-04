@@ -158,6 +158,9 @@ public struct LearningMetricsView: View {
                     metricCard(title: "Gain mean", value: String(format: "%.3f", latest.params.gainMean))
                     metricCard(title: "Gain var", value: String(format: "%.3f", latest.params.gainVariance))
                 }
+                if let acc = latest.optionAccuracy {
+                    optionAccuracyRow(value: acc)
+                }
             }
         }
     }
@@ -249,6 +252,20 @@ public struct LearningMetricsView: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
+    }
+
+    private func optionAccuracyRow(value: Float) -> some View {
+        let pct = max(0, min(1, value))
+        return HStack(spacing: 8) {
+            Text("Option acc")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            ProgressView(value: Double(pct))
+                .progressViewStyle(.linear)
+                .frame(width: 120)
+            Text(String(format: "%.2f", pct))
+                .font(.caption.monospacedDigit())
+        }
     }
 
     private func downsampleHistogram(yHat: [Float], target: [Float]?, maxBins: Int) -> ([Float], [Float]?) {
@@ -359,7 +376,7 @@ final class LearningMetricsViewModel: ObservableObject {
 }
 
 struct LearningLogPayload: Decodable {
-    struct Loss: Decodable { let total: Float; let bins: Float; let spike: Float; let boundary: Float }
+    struct Loss: Decodable { let total: Float; let bins: Float; let negative: Float?; let spike: Float; let boundary: Float }
     struct Rates: Decodable { let spike: Float; let completion: Float }
     struct Radius: Decodable { let meanMiss: Float; let R: Float? }
     struct Params: Decodable { let lif: Float; let radialBias: Float; let spikeKick: Float; let gainMean: Float; let gainVariance: Float }
@@ -392,6 +409,7 @@ struct LearningLogPayload: Decodable {
     let loss: Loss
     let rates: Rates
     let radius: Radius
+    let optionAccuracy: Float?
     let params: Params
     let bins: Bins
     let histogram: Histogram?
