@@ -73,6 +73,9 @@ enum Validation {
         if flow.T < 1 {
             throw ConfigError.invalidFlowParameter("T must be ≥ 1 (got \(flow.T))")
         }
+        if let computeBackend = flow.computeBackend?.lowercased(), computeBackend != "metal" {
+            throw ConfigError.invalidFlowParameter("flow.compute_backend must be 'metal' (got \(computeBackend))")
+        }
         if flow.radius <= 0 {
             throw ConfigError.invalidFlowParameter("radius must be > 0 (got \(flow.radius))")
         }
@@ -434,6 +437,7 @@ public struct ConfigRoot: Decodable {
         public struct Flow: Decodable {
             public let T: Int
             public let radius: Double
+            public let computeBackend: String?
             public let seedLayout: String
             public let seedRadius: Double
             public let lif: LIF
@@ -445,6 +449,7 @@ public struct ConfigRoot: Decodable {
             enum CodingKeys: String, CodingKey {
                 case T
                 case radius
+                case computeBackend = "compute_backend"
                 case seedLayout = "seed_layout"
                 case seedRadius = "seed_radius"
                 case lif

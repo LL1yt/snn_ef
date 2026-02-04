@@ -122,6 +122,7 @@ router:
   flow:
     T: 12                         # число шагов симуляции (≥ 1)
     radius: 10.0                  # радиус окружности проекции (R > 0)
+    compute_backend: "metal"      # единственный допустимый: metal
     seed_layout: "ring"           # ring | disk
     seed_radius: 1.0              # радиус начальной посадки семян (0 ≤ r0 < R)
     lif:
@@ -198,6 +199,7 @@ Constraints:
 
 - `router.backend == "flow"`.
 - `flow.T ≥ 1`, `flow.radius > 0`, `0 ≤ seed_radius < radius`.
+- `flow.compute_backend` если указан, должен быть `metal`.
 - `lif.decay ∈ (0,1)`, `lif.threshold ∈ (0,1]`.
 - `dynamics.spike_kick ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`.
 - `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.

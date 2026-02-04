@@ -825,8 +825,11 @@ private struct StreamTrackRow: View {
         let label = Text(text)
             .font(.system(size: 9, weight: .semibold, design: .monospaced))
             .foregroundColor(.white)
-        let resolved = ctx.resolve(label)
-        let box = CGRect(x: point.x + 6, y: point.y - 12, width: resolved.size.width + 6, height: resolved.size.height + 4)
+        let fontSize: CGFloat = 9
+        let charWidth: CGFloat = fontSize * 0.6
+        let boxWidth = CGFloat(text.count) * charWidth + 6
+        let boxHeight = fontSize + 4
+        let box = CGRect(x: point.x + 6, y: point.y - 12, width: boxWidth, height: boxHeight)
         ctx.fill(Path(roundedRect: box, cornerRadius: 4), with: .color(.black.opacity(0.5)))
         ctx.draw(label, at: CGPoint(x: box.midX, y: box.midY))
     }

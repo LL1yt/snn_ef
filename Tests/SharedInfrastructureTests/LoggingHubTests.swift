@@ -141,6 +141,7 @@ final class LoggingHubTests: XCTestCase {
             flow: .init(
                 T: 2,
                 radius: 5.0,
+                computeBackend: nil,
                 seedLayout: "ring",
                 seedRadius: 1.0,
                 lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
