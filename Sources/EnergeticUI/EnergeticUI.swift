@@ -82,6 +82,8 @@ public struct EnergeticUIPreview: View {
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
+
+                LearningMetricsView(logFileURL: LearningLogSource.resolveLogFileURL(from: snapshot))
             } else {
                 Text("Config snapshot not available")
                     .foregroundColor(.secondary)

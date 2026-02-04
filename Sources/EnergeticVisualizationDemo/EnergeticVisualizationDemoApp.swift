@@ -67,6 +67,8 @@ struct EnergeticVisualizationDemoApp: App {
                                 .frame(height: 280)
                                 .padding(.horizontal)
                         }
+                        LearningMetricsView(logFileURL: LearningLogSource.resolveLogFileURL(from: cfgSnap))
+                            .padding(.horizontal)
                     }
                 } else {
                     FailureView(error: loadError)

@@ -263,6 +263,10 @@ public final class FlowLearningLoop {
         // Update router config with new parameters (for next epoch)
         updateRouterConfig()
 
+#if canImport(SharedInfrastructure)
+        emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets)
+#endif
+
         return LearningMetrics(
             epoch: epoch,
             totalLoss: totalLoss,
@@ -342,4 +346,77 @@ public final class FlowLearningLoop {
 
         return LearningMetrics.BinStatistics(mean: mean, variance: variance, min: min, max: max)
     }
+
+#if canImport(SharedInfrastructure)
+    private static let learningLogPrefix = "learning.metrics "
+
+    private func emitLearningLog(
+        epoch: Int,
+        metrics: LearningMetrics,
+        params: LearnableParameters,
+        yHat: [Float],
+        targets: [Float]
+    ) {
+        let gainCount = Float(max(params.gains.count, 1))
+        let gainMean = params.gains.reduce(0, +) / gainCount
+        let gainVar = params.gains.map { diff in
+            let delta = diff - gainMean
+            return delta * delta
+        }.reduce(0, +) / gainCount
+
+        let histogram: LearningLogPayload.Histogram?
+        if yHat.count == flowConfig.bins {
+            let targetPayload = targets.count == flowConfig.bins ? targets : nil
+            histogram = LearningLogPayload.Histogram(yHat: yHat, target: targetPayload)
+        } else {
+            histogram = nil
+        }
+
+        let payload = LearningLogPayload(
+            epoch: epoch,
+            loss: .init(total: metrics.totalLoss, bins: metrics.binLoss, spike: metrics.spikeLoss, boundary: metrics.boundaryLoss),
+            rates: .init(spike: metrics.spikeRate, completion: metrics.completionRate),
+            radius: .init(meanMiss: metrics.meanRadialMiss),
+            params: .init(
+                lif: params.lifThreshold,
+                radialBias: params.radialBias,
+                spikeKick: params.spikeKick,
+                gainMean: gainMean,
+                gainVariance: gainVar
+            ),
+            bins: .init(
+                nonzero: metrics.nonzeroBins,
+                mean: metrics.yHatStats.mean,
+                variance: metrics.yHatStats.variance,
+                min: metrics.yHatStats.min,
+                max: metrics.yHatStats.max
+            ),
+            histogram: histogram
+        )
+
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(payload),
+              let json = String(data: data, encoding: .utf8) else {
+            return
+        }
+        LoggingHub.emit(process: "trainer.loop", level: .info, message: Self.learningLogPrefix + json)
+    }
+
+    private struct LearningLogPayload: Codable {
+        struct Loss: Codable { let total: Float; let bins: Float; let spike: Float; let boundary: Float }
+        struct Rates: Codable { let spike: Float; let completion: Float }
+        struct Radius: Codable { let meanMiss: Float }
+        struct Params: Codable { let lif: Float; let radialBias: Float; let spikeKick: Float; let gainMean: Float; let gainVariance: Float }
+        struct Bins: Codable { let nonzero: Int; let mean: Float; let variance: Float; let min: Float; let max: Float }
+        struct Histogram: Codable { let yHat: [Float]; let target: [Float]? }
+
+        let epoch: Int
+        let loss: Loss
+        let rates: Rates
+        let radius: Radius
+        let params: Params
+        let bins: Bins
+        let histogram: Histogram?
+    }
+#endif
 }
