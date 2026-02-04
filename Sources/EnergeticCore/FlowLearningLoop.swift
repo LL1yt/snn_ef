@@ -152,7 +152,9 @@ public final class FlowLearningLoop {
         targets: [Float],
         wrongTargets: [[Float]] = [],
         optionTargets: [[Float]] = [],
-        correctIndex: Int? = nil
+        correctIndex: Int? = nil,
+        applyUpdates: Bool = true,
+        emitLog: Bool = true
     ) -> LearningMetrics {
         // Create seeds from energies
         let seeds = FlowSeeds.makeSeeds(
@@ -281,63 +283,68 @@ public final class FlowLearningLoop {
         let nonzeroBins = yHat.filter { $0 > 0 }.count
         let yHatStats = computeBinStatistics(yHat)
 
-        // Store old parameters for delta computation
-        let oldGains = params.gains
-        let oldThreshold = params.lifThreshold
-        let oldRadialBias = params.radialBias
-        let oldSpikeKick = params.spikeKick
+        let paramDeltas: LearningMetrics.ParameterDeltas
+        if applyUpdates {
+            // Store old parameters for delta computation
+            let oldGains = params.gains
+            let oldThreshold = params.lifThreshold
+            let oldRadialBias = params.radialBias
+            let oldSpikeKick = params.spikeKick
 
-        // Update parameters
-        ParameterUpdater.updateGains(
-            gains: &params.gains,
-            yHat: yHat,
-            target: targets,
-            learningRate: learningConfig.learningRates.gain,
-            bounds: learningConfig.bounds.gain
-        )
+            // Update parameters
+            ParameterUpdater.updateGains(
+                gains: &params.gains,
+                yHat: yHat,
+                target: targets,
+                learningRate: learningConfig.learningRates.gain,
+                bounds: learningConfig.bounds.gain
+            )
 
-        ParameterUpdater.updateLifThreshold(
-            threshold: &params.lifThreshold,
-            observedRate: spikeRate,
-            targetRate: learningConfig.targetSpikeRate,
-            learningRate: learningConfig.learningRates.lif,
-            bounds: learningConfig.bounds.theta
-        )
+            ParameterUpdater.updateLifThreshold(
+                threshold: &params.lifThreshold,
+                observedRate: spikeRate,
+                targetRate: learningConfig.targetSpikeRate,
+                learningRate: learningConfig.learningRates.lif,
+                bounds: learningConfig.bounds.theta
+            )
 
-        ParameterUpdater.updateRadialBias(
-            radialBias: &params.radialBias,
-            completionRate: completionRate,
-            meanRadialMiss: meanRadialMiss,
-            learningRate: learningConfig.learningRates.dynamics,
-            bounds: learningConfig.bounds.radialBias
-        )
+            ParameterUpdater.updateRadialBias(
+                radialBias: &params.radialBias,
+                completionRate: completionRate,
+                meanRadialMiss: meanRadialMiss,
+                learningRate: learningConfig.learningRates.dynamics,
+                bounds: learningConfig.bounds.radialBias
+            )
 
-        let binLossTrend = binLoss - previousBinLoss
-        ParameterUpdater.updateSpikeKick(
-            spikeKick: &params.spikeKick,
-            meanRadialMiss: meanRadialMiss,
-            binLossTrend: binLossTrend,
-            learningRate: learningConfig.learningRates.dynamics,
-            bounds: learningConfig.bounds.spikeKick
-        )
+            let binLossTrend = binLoss - previousBinLoss
+            ParameterUpdater.updateSpikeKick(
+                spikeKick: &params.spikeKick,
+                meanRadialMiss: meanRadialMiss,
+                binLossTrend: binLossTrend,
+                learningRate: learningConfig.learningRates.dynamics,
+                bounds: learningConfig.bounds.spikeKick
+            )
 
-        previousBinLoss = binLoss
+            previousBinLoss = binLoss
 
-        // Compute parameter deltas
-        let gainDeltas = zip(oldGains, params.gains).map { $1 - $0 }
-        let gainDeltaMean = gainDeltas.reduce(0, +) / Float(gainDeltas.count)
-        let gainDeltaVariance = gainDeltas.map { d in (d - gainDeltaMean) * (d - gainDeltaMean) }.reduce(0, +) / Float(gainDeltas.count)
+            // Compute parameter deltas
+            let gainDeltas = zip(oldGains, params.gains).map { $1 - $0 }
+            let gainDeltaMean = gainDeltas.reduce(0, +) / Float(gainDeltas.count)
+            let gainDeltaVariance = gainDeltas.map { d in (d - gainDeltaMean) * (d - gainDeltaMean) }.reduce(0, +) / Float(gainDeltas.count)
 
-        let paramDeltas = LearningMetrics.ParameterDeltas(
-            gainMean: gainDeltaMean,
-            gainVariance: gainDeltaVariance,
-            lifThreshold: params.lifThreshold - oldThreshold,
-            radialBias: params.radialBias - oldRadialBias,
-            spikeKick: params.spikeKick - oldSpikeKick
-        )
+            paramDeltas = LearningMetrics.ParameterDeltas(
+                gainMean: gainDeltaMean,
+                gainVariance: gainDeltaVariance,
+                lifThreshold: params.lifThreshold - oldThreshold,
+                radialBias: params.radialBias - oldRadialBias,
+                spikeKick: params.spikeKick - oldSpikeKick
+            )
 
-        // Update router config with new parameters (for next epoch)
-        updateRouterConfig()
+            // Update router config with new parameters (for next epoch)
+            updateRouterConfig()
+        } else {
+            paramDeltas = LearningMetrics.ParameterDeltas(gainMean: 0, gainVariance: 0, lifThreshold: 0, radialBias: 0, spikeKick: 0)
+        }
 
         let metrics = LearningMetrics(
             epoch: epoch,
@@ -356,15 +363,17 @@ public final class FlowLearningLoop {
         )
 
 #if canImport(SharedInfrastructure)
-        let traces = trackedIDs.compactMap { id -> LearningLogPayload.Trace? in
-            guard let steps = traceSteps[id] else { return nil }
-            return LearningLogPayload.Trace(id: id, steps: steps)
+        if emitLog {
+            let traces = trackedIDs.compactMap { id -> LearningLogPayload.Trace? in
+                guard let steps = traceSteps[id] else { return nil }
+                return LearningLogPayload.Trace(id: id, steps: steps)
+            }
+            let paths = trackedIDs.compactMap { id -> LearningLogPayload.Path? in
+                guard let points = pathPoints[id] else { return nil }
+                return LearningLogPayload.Path(id: id, points: points)
+            }
+            emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets, traces: traces, paths: paths)
         }
-        let paths = trackedIDs.compactMap { id -> LearningLogPayload.Path? in
-            guard let points = pathPoints[id] else { return nil }
-            return LearningLogPayload.Path(id: id, points: points)
-        }
-        emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets, traces: traces, paths: paths)
 #endif
 
         return metrics

@@ -70,10 +70,11 @@ public struct LearningMetricsView: View {
 
     private var metricsColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
+            qualityPanel
             lossCharts
             rateCharts
         }
-        .frame(maxWidth: 300)
+        .frame(maxWidth: 320)
     }
 
     private var paramsColumn: some View {
@@ -111,6 +112,7 @@ public struct LearningMetricsView: View {
     private var lossCharts: some View {
         let total = viewModel.records.map { Double($0.loss.total) }
         let bins = viewModel.records.map { Double($0.loss.bins) }
+        let negative = viewModel.records.map { Double($0.loss.negative ?? 0) }
         let spike = viewModel.records.map { Double($0.loss.spike) }
         let boundary = viewModel.records.map { Double($0.loss.boundary) }
 
@@ -119,11 +121,15 @@ public struct LearningMetricsView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             HStack(spacing: 12) {
-                MetricLineChart(title: "Total", values: total, color: .blue)
-                MetricLineChart(title: "Bins", values: bins, color: .teal)
-                MetricLineChart(title: "Spike", values: spike, color: .orange)
-                MetricLineChart(title: "Boundary", values: boundary, color: .purple)
+                MetricLineChart(title: "Total", values: total, color: .blue, trendHint: trendHint(for: "Total", values: total))
+                MetricLineChart(title: "Bins", values: bins, color: .teal, trendHint: trendHint(for: "Bins", values: bins))
+                MetricLineChart(title: "Negative", values: negative, color: .pink, trendHint: trendHint(for: "Negative", values: negative))
+                MetricLineChart(title: "Spike", values: spike, color: .orange, trendHint: trendHint(for: "Spike", values: spike))
+                MetricLineChart(title: "Boundary", values: boundary, color: .purple, trendHint: trendHint(for: "Boundary", values: boundary))
             }
+            Text("↓ better: Total/Bins/Negative/Spike/Boundary")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -131,16 +137,23 @@ public struct LearningMetricsView: View {
         let spike = viewModel.records.map { Double($0.rates.spike) }
         let completion = viewModel.records.map { Double($0.rates.completion) }
         let miss = viewModel.records.map { Double($0.radius.meanMiss) }
+        let accuracy = viewModel.records.compactMap { $0.optionAccuracy }.map { Double($0) }
 
         return VStack(alignment: .leading, spacing: 8) {
             Text("Rates")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             HStack(spacing: 12) {
-                MetricLineChart(title: "Spike", values: spike, color: .red)
-                MetricLineChart(title: "Completion", values: completion, color: .green)
-                MetricLineChart(title: "Radial miss", values: miss, color: .gray)
+                MetricLineChart(title: "Spike", values: spike, color: .red, trendHint: trendHint(for: "SpikeRate", values: spike))
+                MetricLineChart(title: "Completion", values: completion, color: .green, trendHint: trendHint(for: "Completion", values: completion))
+                MetricLineChart(title: "Radial miss", values: miss, color: .gray, trendHint: trendHint(for: "RadialMiss", values: miss))
+                if !accuracy.isEmpty {
+                    MetricLineChart(title: "Acc", values: accuracy, color: .indigo, trendHint: trendHint(for: "Acc", values: accuracy))
+                }
             }
+            Text("↑ better: Completion, Acc | ↓ better: Radial miss | ≈ target: Spike rate")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -254,6 +267,29 @@ public struct LearningMetricsView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
     }
 
+    private var qualityPanel: some View {
+        guard let record = currentRecord else { return AnyView(EmptyView()) }
+        let summary = QualitySummary.evaluate(records: viewModel.records, current: record)
+        return AnyView(
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(summary.color)
+                        .frame(width: 10, height: 10)
+                    Text("Quality: \(summary.label)")
+                        .font(.subheadline)
+                }
+                ForEach(summary.notes, id: \.self) { note in
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
+        )
+    }
+
     private func optionAccuracyRow(value: Float) -> some View {
         let pct = max(0, min(1, value))
         return HStack(spacing: 8) {
@@ -265,6 +301,23 @@ public struct LearningMetricsView: View {
                 .frame(width: 120)
             Text(String(format: "%.2f", pct))
                 .font(.caption.monospacedDigit())
+        }
+    }
+
+    private func trendHint(for kind: String, values: [Double]) -> String {
+        guard values.count >= 3 else { return "→" }
+        let recent = Array(values.suffix(6))
+        let trend = recent.last! - recent.first!
+        if abs(trend) < 1e-6 { return "→ stable" }
+        switch kind {
+        case "Completion", "Acc":
+            return trend > 0 ? "↑ better" : "↓ worse"
+        case "RadialMiss", "Total", "Bins", "Negative", "Spike", "Boundary":
+            return trend < 0 ? "↓ better" : "↑ worse"
+        case "SpikeRate":
+            return "≈ target"
+        default:
+            return trend > 0 ? "↑" : "↓"
         }
     }
 
@@ -439,6 +492,7 @@ struct MetricLineChart: View {
     let title: String
     let values: [Double]
     let color: Color
+    let trendHint: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -448,6 +502,11 @@ struct MetricLineChart: View {
             LineChart(values: values, color: color)
                 .frame(height: 60)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
+            if let trendHint {
+                Text(trendHint)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 }
@@ -834,6 +893,42 @@ private struct TraceStepsTable: View {
             }
             .font(.caption2.monospacedDigit())
         }
+    }
+}
+
+private enum QualitySummary {
+    static func evaluate(records: [LearningLogPayload], current: LearningLogPayload) -> (label: String, color: Color, notes: [String]) {
+        let lossTrend = trend(records.map { Double($0.loss.total) })
+        let missTrend = trend(records.map { Double($0.radius.meanMiss) })
+        let accTrend = trend(records.compactMap { $0.optionAccuracy }.map { Double($0) })
+
+        var score = 0
+        var notes: [String] = []
+
+        if lossTrend < 0 { score += 1; notes.append("Loss decreasing (good)") }
+        else { notes.append("Loss not decreasing") }
+
+        if missTrend < 0 { score += 1; notes.append("Radial miss decreasing (good)") }
+        else { notes.append("Radial miss not improving") }
+
+        if !records.compactMap({ $0.optionAccuracy }).isEmpty {
+            if accTrend > 0 { score += 1; notes.append("Accuracy increasing (good)") }
+            else { notes.append("Accuracy not improving") }
+        }
+
+        let label: String
+        let color: Color
+        if score >= 2 { label = "OK"; color = .green }
+        else if score == 1 { label = "Warning"; color = .yellow }
+        else { label = "Bad"; color = .red }
+
+        return (label, color, notes)
+    }
+
+    private static func trend(_ values: [Double]) -> Double {
+        guard values.count >= 2 else { return 0 }
+        let recent = Array(values.suffix(6))
+        return recent.last! - recent.first!
     }
 }
 

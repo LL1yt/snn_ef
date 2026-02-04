@@ -165,6 +165,7 @@ struct EnergeticCLI {
         let useDataset = datasetPath != nil || !datasetConfig.localPath.isEmpty
 
         var trainSamples: [LogiQASample] = []
+        var validSamples: [LogiQASample] = []
         if useDataset {
             let trainPath = datasetPath ?? datasetConfig.localPath
             if !FileManager.default.fileExists(atPath: trainPath) {
@@ -181,6 +182,15 @@ struct EnergeticCLI {
                     seed: UInt64(datasetConfig.seed)
                 )
                 LoggingHub.emit(process: "cli.main", level: .info, message: "Loaded LogiQA train samples: \(trainSamples.count)")
+                if let validPath = datasetConfig.validPath, FileManager.default.fileExists(atPath: validPath) {
+                    validSamples = try LogiQADatasetLoader.loadJSONL(
+                        from: validPath,
+                        limit: datasetConfig.validLimit,
+                        shuffle: false,
+                        seed: UInt64(datasetConfig.seed &+ 1)
+                    )
+                    LoggingHub.emit(process: "cli.main", level: .info, message: "Loaded LogiQA valid samples: \(validSamples.count)")
+                }
             } catch {
                 Diagnostics.fail("Failed to load dataset: \(error.localizedDescription)", processID: processID)
             }
@@ -198,9 +208,10 @@ struct EnergeticCLI {
         print("Starting learning: epochs=\(epochs), bins=\(flowCfg.bins), target_spike_rate=\(learningCfg.targetSpikeRate)")
 
         // Training loop
+        let evalEvery = max(1, saveEvery)
         for epoch in 0..<epochs {
             let pair = makeTrainingPair(
-                epoch: epoch,
+                index: epoch,
                 samples: trainSamples,
                 fallbackInput: fallbackInput,
                 fallbackAnswer: fallbackAnswer,
@@ -241,6 +252,24 @@ struct EnergeticCLI {
                 } catch {
                     LoggingHub.emit(process: "cli.main", level: .warn, message: "Failed to save checkpoint: \(error.localizedDescription)")
                 }
+            }
+
+            if !validSamples.isEmpty && ((epoch + 1) % evalEvery == 0 || epoch == epochs - 1) {
+                let evalMetrics = evaluateSamples(
+                    epoch: epoch,
+                    samples: validSamples,
+                    flowConfig: flowCfg,
+                    learningConfig: learningCfg,
+                    capsuleConfig: snapshot.root.capsule,
+                    bins: flowCfg.bins,
+                    processID: processID
+                )
+                LoggingHub.emit(
+                    process: "trainer.eval",
+                    level: .info,
+                    message: "Eval epoch \(epoch): L=\(String(format: "%.4f", evalMetrics.totalLoss)) bins=\(String(format: "%.4f", evalMetrics.binLoss)) neg=\(String(format: "%.4f", evalMetrics.negativeLoss)) acc=\(String(format: "%.3f", evalMetrics.optionAccuracy ?? -1))"
+                )
+                print("Eval \(epoch): L=\(String(format: "%.4f", evalMetrics.totalLoss)) bins=\(String(format: "%.4f", evalMetrics.binLoss)) neg=\(String(format: "%.4f", evalMetrics.negativeLoss)) acc=\(String(format: "%.3f", evalMetrics.optionAccuracy ?? -1))")
             }
         }
 
@@ -288,7 +317,7 @@ struct EnergeticCLI {
     }
 
     private static func makeTrainingPair(
-        epoch: Int,
+        index: Int,
         samples: [LogiQASample],
         fallbackInput: String,
         fallbackAnswer: String,
@@ -304,7 +333,7 @@ struct EnergeticCLI {
             answerText = fallbackAnswer
             wrongAnswers = []
         } else {
-            let idx = epoch % samples.count
+            let idx = index % samples.count
             let sample = samples[idx]
             inputText = sample.input_text
             answerText = sample.answer_text
@@ -346,6 +375,69 @@ struct EnergeticCLI {
 
         let optionTargets = [targets] + wrongTargets
         return (inputEnergies, targets, wrongTargets, optionTargets, 0)
+    }
+
+    private static func evaluateSamples(
+        epoch: Int,
+        samples: [LogiQASample],
+        flowConfig: FlowConfig,
+        learningConfig: LearningConfig,
+        capsuleConfig: ConfigRoot.Capsule,
+        bins: Int,
+        processID: String
+    ) -> LearningMetrics {
+        let evalLoop = FlowLearningLoop(flowConfig: flowConfig, learningConfig: learningConfig, seed: UInt64(epoch &+ 1000))
+        var totalLoss: Float = 0
+        var binLoss: Float = 0
+        var negLoss: Float = 0
+        var accSum: Float = 0
+        var accCount: Float = 0
+
+        for (i, sample) in samples.enumerated() {
+            let pair = makeTrainingPair(
+                index: i,
+                samples: [sample],
+                fallbackInput: sample.input_text,
+                fallbackAnswer: sample.answer_text,
+                capsuleConfig: capsuleConfig,
+                bins: bins,
+                processID: processID
+            )
+            let metrics = evalLoop.runEpoch(
+                epoch: epoch,
+                energies: pair.energies,
+                targets: pair.targets,
+                wrongTargets: pair.wrongTargets,
+                optionTargets: pair.optionTargets,
+                correctIndex: pair.correctIndex,
+                applyUpdates: false,
+                emitLog: false
+            )
+            totalLoss += metrics.totalLoss
+            binLoss += metrics.binLoss
+            negLoss += metrics.negativeLoss
+            if let acc = metrics.optionAccuracy {
+                accSum += acc
+                accCount += 1
+            }
+        }
+
+        let count = max(1, samples.count)
+        return LearningMetrics(
+            epoch: epoch,
+            totalLoss: totalLoss / Float(count),
+            binLoss: binLoss / Float(count),
+            negativeLoss: negLoss / Float(count),
+            spikeLoss: 0,
+            boundaryLoss: 0,
+            spikeRate: 0,
+            completionRate: 0,
+            meanRadialMiss: 0,
+            nonzeroBins: 0,
+            yHatStats: .init(mean: 0, variance: 0, min: 0, max: 0),
+            paramDeltas: .init(gainMean: 0, gainVariance: 0, lifThreshold: 0, radialBias: 0, spikeKick: 0),
+            optionAccuracy: accCount > 0 ? accSum / accCount : nil
+        )
     }
 
     private static func truncateIfNeeded(_ data: Data, maxBytes: Int) -> Data {
