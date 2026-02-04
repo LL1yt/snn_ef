@@ -361,6 +361,30 @@ struct EnergeticCLI {
         let correctIndex: Int
     }
 
+    private static func buildCache(
+        samples: [LogiQASample],
+        capsuleConfig: ConfigRoot.Capsule,
+        bins: Int,
+        processID: String
+    ) -> [String: EncodedSample] {
+        guard !samples.isEmpty else { return [:] }
+        var cache: [String: EncodedSample] = [:]
+        cache.reserveCapacity(samples.count)
+        for (idx, sample) in samples.enumerated() {
+            _ = makeTrainingPair(
+                index: idx,
+                samples: [sample],
+                fallbackInput: sample.input_text,
+                fallbackAnswer: sample.answer_text,
+                capsuleConfig: capsuleConfig,
+                bins: bins,
+                processID: processID,
+                cache: &cache
+            )
+        }
+        return cache
+    }
+
     private static func makeTrainingPair(
         index: Int,
         samples: [LogiQASample],

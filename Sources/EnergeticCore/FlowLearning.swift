@@ -188,12 +188,14 @@ public struct RouterLearningState: Sendable, Codable {
         }
 
         public func toLearnableParameters() -> LearnableParameters {
-            LearnableParameters(
-                gains: gains,
+            var params = LearnableParameters(
+                bins: gains.count,
                 lifThreshold: lifThreshold,
                 radialBias: radialBias,
                 spikeKick: spikeKick
             )
+            params.gains = gains
+            return params
         }
     }
 }
