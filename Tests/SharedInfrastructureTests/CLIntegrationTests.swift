@@ -137,6 +137,7 @@ final class CLIntegrationTests: XCTestCase {
               surrogate: "fast_sigmoid"
             dynamics:
               radial_bias: 0.1
+              spike_kick: 0.5
               noise_std_pos: 0.0
               noise_std_dir: 0.0
               max_speed: 1.0

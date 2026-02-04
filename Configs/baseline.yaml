@@ -80,7 +80,7 @@ router:
       bins: 256
       bin_smoothing: 0.0
     learning:
-      enabled: false
+      enabled: true
       epochs: 50
       steps_per_epoch: 12
       target_spike_rate: 0.15
