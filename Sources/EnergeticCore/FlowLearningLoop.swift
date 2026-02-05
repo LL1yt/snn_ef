@@ -209,6 +209,7 @@ public final class FlowLearningLoop {
         var gpuMeanRadialMiss: Float? = nil
         var gpuBoundaryLoss: Float? = nil
         var gpuLearningScalars: FlowLearningScalars? = nil
+        let inputHistogram: [Float]? = needsUILog ? HistogramBuilder.fromEnergies(energies, bins: flowConfig.bins) : nil
 
         // Initial bins for alignment weight (dense by seed index; store -1 when unknown)
         var initialBinsByIndex = [Int32](repeating: -1, count: seeds.count)
@@ -677,6 +678,9 @@ public final class FlowLearningLoop {
                 answerText: answerText,
                 predictedBins: predictedBins,
                 projectedHistogram: projectedHistogram,
+                inputHistogram: inputHistogram,
+                outputHistogram: (yHat.count == flowConfig.bins) ? yHat : nil,
+                targetHistogram: (targets.count == flowConfig.bins) ? targets : nil,
                 traces: traces,
                 paths: paths
             )
@@ -787,6 +791,9 @@ public final class FlowLearningLoop {
         answerText: String?,
         predictedBins: [Int]?,
         projectedHistogram: [Float]?,
+        inputHistogram: [Float]?,
+        outputHistogram: [Float]?,
+        targetHistogram: [Float]?,
         traces: [LearningLogPayload.Trace],
         paths: [LearningLogPayload.Path]
     ) {
@@ -812,10 +819,15 @@ public final class FlowLearningLoop {
             radius: .init(meanMiss: metrics.meanRadialMiss, R: flowConfig.radius),
             optionAccuracy: metrics.optionAccuracy,
             histogramMatchL1: metrics.histogramMatchL1,
+            histogramMatchL2: metrics.histogramMatchL2,
+            histogramMatchCosine: metrics.histogramMatchCosine,
             inputText: inputText,
             answerText: answerText,
             predictedBins: predictedBins,
             projectedHistogram: projectedHistogram,
+            inputHistogram: inputHistogram,
+            outputHistogram: outputHistogram,
+            targetHistogram: targetHistogram,
             params: .init(
                 lif: params.lifThreshold,
                 radialBias: params.radialBias,
@@ -879,10 +891,15 @@ public final class FlowLearningLoop {
         let radius: Radius
         let optionAccuracy: Float?
         let histogramMatchL1: Float?
+        let histogramMatchL2: Float?
+        let histogramMatchCosine: Float?
         let inputText: String?
         let answerText: String?
         let predictedBins: [Int]?
         let projectedHistogram: [Float]?
+        let inputHistogram: [Float]?
+        let outputHistogram: [Float]?
+        let targetHistogram: [Float]?
         let params: Params
         let bins: Bins
         let histogram: Histogram?

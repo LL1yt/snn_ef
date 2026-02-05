@@ -673,9 +673,15 @@ struct LearningLogPayload: Decodable {
     let radius: Radius
     let optionAccuracy: Float?
     let histogramMatchL1: Float?
+    let histogramMatchL2: Float?
+    let histogramMatchCosine: Float?
     let inputText: String?
     let answerText: String?
     let predictedBins: [Int]?
+    let projectedHistogram: [Float]?
+    let inputHistogram: [Float]?
+    let outputHistogram: [Float]?
+    let targetHistogram: [Float]?
     let params: Params
     let bins: Bins
     let histogram: Histogram?

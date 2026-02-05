@@ -67,6 +67,16 @@ struct EnergeticCLI {
         let bins = FlowBridgeSNN.simulate(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
         let inputHistogram = HistogramBuilder.fromEnergies(batch.energies, bins: flowCfg.bins)
         precondition(inputHistogram.count == flowCfg.bins, "inputHistogram must match bins")
+        let outputHistogram = bins
+        let normalizedInput = normalizeBins(inputHistogram)
+        let normalizedOutput = normalizeBins(outputHistogram)
+        let histogramMetrics: ConfigPipelineSnapshot.FlowSnapshot.HistogramMetrics?
+        if normalizedInput.count == normalizedOutput.count, !normalizedInput.isEmpty {
+            let values = HistogramMetrics.compute(normalizedInput, normalizedOutput)
+            histogramMetrics = .init(l1: Double(values.l1), l2: Double(values.l2), cosine: values.cosine.map(Double.init))
+        } else {
+            histogramMetrics = nil
+        }
 
         // Prepare flow snapshot: ring seeds + selected particle samples
         let seedsParticles = FlowSeeds.makeSeeds(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
@@ -81,6 +91,8 @@ struct EnergeticCLI {
         let flowSnapshot = ConfigPipelineSnapshot.FlowSnapshot(
             bins: bins.map { Double($0) },
             inputHistogram: inputHistogram.map { Double($0) },
+            outputHistogram: outputHistogram.map { Double($0) },
+            histogramMetrics: histogramMetrics,
             radius: Double(flowCfg.radius),
             stepCount: flowCfg.T,
             ringSeeds: ringSeeds,

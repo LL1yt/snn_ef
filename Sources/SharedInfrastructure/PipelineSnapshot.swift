@@ -143,6 +143,17 @@ public struct ConfigPipelineSnapshot: Codable {
 
     // MARK: - Flow backend snapshot (ring seeds + boundary histogram)
     public struct FlowSnapshot: Codable {
+        public struct HistogramMetrics: Codable {
+            public let l1: Double
+            public let l2: Double
+            public let cosine: Double?
+
+            public init(l1: Double, l2: Double, cosine: Double?) {
+                self.l1 = l1
+                self.l2 = l2
+                self.cosine = cosine
+            }
+        }
         public struct RingSeed: Codable {
             public let id: Int
             public let angle: Double // radians [-pi, pi]
@@ -177,6 +188,8 @@ public struct ConfigPipelineSnapshot: Codable {
         }
         public let bins: [Double]
         public let inputHistogram: [Double]?
+        public let outputHistogram: [Double]?
+        public let histogramMetrics: HistogramMetrics?
         public let radius: Double
         public let stepCount: Int
         public let ringSeeds: [RingSeed]
@@ -187,6 +200,8 @@ public struct ConfigPipelineSnapshot: Codable {
         public init(
             bins: [Double],
             inputHistogram: [Double]? = nil,
+            outputHistogram: [Double]? = nil,
+            histogramMetrics: HistogramMetrics? = nil,
             radius: Double,
             stepCount: Int,
             ringSeeds: [RingSeed],
@@ -197,6 +212,8 @@ public struct ConfigPipelineSnapshot: Codable {
         ) {
             self.bins = bins
             self.inputHistogram = inputHistogram
+            self.outputHistogram = outputHistogram
+            self.histogramMetrics = histogramMetrics
             self.radius = radius
             self.stepCount = stepCount
             self.ringSeeds = ringSeeds
