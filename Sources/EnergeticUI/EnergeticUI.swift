@@ -84,8 +84,7 @@ public struct EnergeticUIPreview: View {
                 }
 
                 LearningMetricsView(
-                    logFileURL: LearningLogSource.resolveLogFileURL(from: snapshot),
-                    capsuleConfig: snapshot.root.capsule
+                    logFileURL: LearningLogSource.resolveLogFileURL(from: snapshot)
                 )
             } else {
                 Text("Config snapshot not available")

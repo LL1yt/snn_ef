@@ -43,8 +43,7 @@ struct EnergeticVisualizationDemoApp: App {
                 if let cfgSnap = snapshot {
                     VStack(spacing: 16) {
                         LearningMetricsView(
-                            logFileURL: LearningLogSource.resolveLogFileURL(from: cfgSnap),
-                            capsuleConfig: cfgSnap.root.capsule
+                            logFileURL: LearningLogSource.resolveLogFileURL(from: cfgSnap)
                         )
                         .frame(minHeight: 520)
                         .padding(.horizontal)
