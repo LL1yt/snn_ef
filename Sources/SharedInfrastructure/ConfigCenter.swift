@@ -102,6 +102,12 @@ enum Validation {
         if flow.dynamics.energyFloor < 0 {
             throw ConfigError.invalidEnergyFloor(flow.dynamics.energyFloor)
         }
+        if flow.dynamics.energySpikeGain < 0 {
+            throw ConfigError.invalidFlowParameter("dynamics.energy_spike_gain must be ≥ 0")
+        }
+        if flow.dynamics.energyCap < 0 {
+            throw ConfigError.invalidFlowParameter("dynamics.energy_cap must be ≥ 0 (0 = no cap)")
+        }
         // Projection
         if flow.projection.shape.lowercased() != "circle" {
             throw ConfigError.invalidFlowParameter("projection.shape must be 'circle' in this profile")
@@ -481,6 +487,8 @@ public struct ConfigRoot: Decodable {
                 public let maxSpeed: Double
                 public let energyAlpha: Double
                 public let energyFloor: Double
+                public let energySpikeGain: Double
+                public let energyCap: Double
 
                 enum CodingKeys: String, CodingKey {
                     case radialBias = "radial_bias"
@@ -490,6 +498,43 @@ public struct ConfigRoot: Decodable {
                     case maxSpeed = "max_speed"
                     case energyAlpha = "energy_alpha"
                     case energyFloor = "energy_floor"
+                    case energySpikeGain = "energy_spike_gain"
+                    case energyCap = "energy_cap"
+                }
+
+                public init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    radialBias = try container.decode(Double.self, forKey: .radialBias)
+                    spikeKick = try container.decode(Double.self, forKey: .spikeKick)
+                    noiseStdPos = try container.decode(Double.self, forKey: .noiseStdPos)
+                    noiseStdDir = try container.decode(Double.self, forKey: .noiseStdDir)
+                    maxSpeed = try container.decode(Double.self, forKey: .maxSpeed)
+                    energyAlpha = try container.decode(Double.self, forKey: .energyAlpha)
+                    energyFloor = try container.decode(Double.self, forKey: .energyFloor)
+                    energySpikeGain = try container.decodeIfPresent(Double.self, forKey: .energySpikeGain) ?? 0.0
+                    energyCap = try container.decodeIfPresent(Double.self, forKey: .energyCap) ?? 0.0
+                }
+
+                public init(
+                    radialBias: Double,
+                    spikeKick: Double,
+                    noiseStdPos: Double,
+                    noiseStdDir: Double,
+                    maxSpeed: Double,
+                    energyAlpha: Double,
+                    energyFloor: Double,
+                    energySpikeGain: Double = 0.0,
+                    energyCap: Double = 0.0
+                ) {
+                    self.radialBias = radialBias
+                    self.spikeKick = spikeKick
+                    self.noiseStdPos = noiseStdPos
+                    self.noiseStdDir = noiseStdDir
+                    self.maxSpeed = maxSpeed
+                    self.energyAlpha = energyAlpha
+                    self.energyFloor = energyFloor
+                    self.energySpikeGain = energySpikeGain
+                    self.energyCap = energyCap
                 }
             }
 

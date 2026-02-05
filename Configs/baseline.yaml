@@ -57,7 +57,7 @@ router:
     parameter_count: 512
   backend: "flow"
   flow:
-    T: 20
+    T: 28
     radius: 10.0
     seed_layout: "ring"
     seed_radius: 1.0
@@ -67,13 +67,15 @@ router:
       reset_value: 0.0
       surrogate: "fast_sigmoid"
     dynamics:
-      radial_bias: 0.15
-      spike_kick: 0.5
+      radial_bias: 0.22
+      spike_kick: 0.8
       noise_std_pos: 0.01
       noise_std_dir: 0.05
       max_speed: 1.0
-      energy_alpha: 0.97
-      energy_floor: 1.0e-6
+      energy_alpha: 0.985
+      energy_floor: 1.0e-7
+      energy_spike_gain: 2.0
+      energy_cap: 512.0
     interactions:
       enabled: false
       type: "none"
@@ -105,7 +107,7 @@ router:
         weight: 0.2
         margin: 0.5
       lr:
-        gain: 0.0005
+        gain: 0.0008
         lif: 0.02
         dynamics: 0.003
       weights:
@@ -115,7 +117,7 @@ router:
         theta: [0.5, 1.0]
         radial_bias: [0.0, 0.5]
         spike_kick: [0.0, 1.0]
-        gain: [0.01, 16.0]
+        gain: [0.01, 32.0]
       aggregator:
         sigma_r: 2.5
         sigma_e: 120.0

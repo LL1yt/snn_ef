@@ -138,6 +138,8 @@ router:
       max_speed: 1.0              # ограничение скорости (>0)
       energy_alpha: 0.9           # затухание энергии за шаг (0,1]
       energy_floor: 1.0e-5        # порог отсечения (≥0)
+      energy_spike_gain: 0.0      # добавка энергии при спайке (≥0)
+      energy_cap: 0.0             # верхняя граница энергии (0 = без cap)
     interactions:
       enabled: false
       type: "none"                # none|repel|attract|kernel
@@ -201,7 +203,7 @@ Constraints:
 - `flow.T ≥ 1`, `flow.radius > 0`, `0 ≤ seed_radius < radius`.
 - `flow.compute_backend` если указан, должен быть `metal`.
 - `lif.decay ∈ (0,1)`, `lif.threshold ∈ (0,1]`.
-- `dynamics.spike_kick ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`.
+- `dynamics.spike_kick ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`, `energy_spike_gain ≥ 0`, `energy_cap ≥ 0`.
 - `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.
 - `projection.final_weight_power > 0`.
 - `learning.dataset.local_path` required when dataset enabled.

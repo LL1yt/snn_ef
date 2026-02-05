@@ -17,6 +17,8 @@ struct FlowParams {
     float maxSpeed;
     float energyAlpha;
     float energyFloor;
+    float energySpikeGain;
+    float energyCap;
     float finalWeightPower;
     uint gainsCount;
     uint threadsPerGroup;
@@ -142,6 +144,12 @@ kernel void flow_step(
     py += vy;
 
     e *= p.energyAlpha;
+    if (spiked && p.energySpikeGain > 0.0f) {
+        e += p.energySpikeGain;
+    }
+    if (p.energyCap > 0.0f) {
+        e = min(e, p.energyCap);
+    }
     bool aliveFlag = true;
     int proj = -1;
 

@@ -11,7 +11,7 @@ final class FlowRouterTests: XCTestCase {
             seedRadius: 1,
             finalWeightPower: 1.0,
             lif: .init(decay: 0.9, threshold: 0.3, resetValue: 0.0, surrogate: "fast_sigmoid"),
-            dynamics: .init(radialBias: 0.2, spikeKick: 0.5, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5)
+            dynamics: .init(radialBias: 0.2, spikeKick: 0.5, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5, energySpikeGain: 0.0, energyCap: 0.0)
         )
         let energies = [UInt16](repeating: 50, count: 6)
         let seeds = FlowSeeds.makeSeeds(energies: energies, cfg: cfg, seed: 42)
@@ -30,7 +30,7 @@ final class FlowRouterTests: XCTestCase {
             seedRadius: 1,
             finalWeightPower: 1.0,
             lif: .init(decay: 0.9, threshold: 0.5, resetValue: 0.0, surrogate: "fast_sigmoid"),
-            dynamics: .init(radialBias: 0.0, spikeKick: 0.0, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 1.0, energyFloor: 0.0)
+            dynamics: .init(radialBias: 0.0, spikeKick: 0.0, noiseStdPos: 0.0, noiseStdDir: 0.0, maxSpeed: 1.0, energyAlpha: 1.0, energyFloor: 0.0, energySpikeGain: 0.0, energyCap: 0.0)
         )
 
         var outputs = [Float](repeating: 0, count: cfg.bins)

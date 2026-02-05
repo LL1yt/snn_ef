@@ -419,7 +419,9 @@ public final class FlowLearningLoop {
             noiseStdDir: flowConfig.dynamics.noiseStdDir,
             maxSpeed: flowConfig.dynamics.maxSpeed,
             energyAlpha: flowConfig.dynamics.energyAlpha,
-            energyFloor: flowConfig.dynamics.energyFloor
+            energyFloor: flowConfig.dynamics.energyFloor,
+            energySpikeGain: flowConfig.dynamics.energySpikeGain,
+            energyCap: flowConfig.dynamics.energyCap
         )
         let updatedConfig = FlowConfig(
             T: flowConfig.T,

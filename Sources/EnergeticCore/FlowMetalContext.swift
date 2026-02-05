@@ -18,6 +18,8 @@ struct FlowMetalParams {
     var maxSpeed: Float
     var energyAlpha: Float
     var energyFloor: Float
+    var energySpikeGain: Float
+    var energyCap: Float
     var finalWeightPower: Float
     var gainsCount: UInt32
     var threadsPerGroup: UInt32
@@ -164,6 +166,8 @@ final class FlowMetalContext {
             maxSpeed: cfg.dynamics.maxSpeed,
             energyAlpha: cfg.dynamics.energyAlpha,
             energyFloor: cfg.dynamics.energyFloor,
+            energySpikeGain: cfg.dynamics.energySpikeGain,
+            energyCap: cfg.dynamics.energyCap,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(threadsPerGroup),
@@ -350,6 +354,8 @@ final class FlowMetalContext {
             maxSpeed: cfg.dynamics.maxSpeed,
             energyAlpha: cfg.dynamics.energyAlpha,
             energyFloor: cfg.dynamics.energyFloor,
+            energySpikeGain: cfg.dynamics.energySpikeGain,
+            energyCap: cfg.dynamics.energyCap,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(stepThreadsPerGroup),
@@ -402,6 +408,8 @@ final class FlowMetalContext {
             maxSpeed: 0,
             energyAlpha: 0,
             energyFloor: 0,
+            energySpikeGain: 0,
+            energyCap: 0,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(finalThreadsPerGroup),
@@ -498,6 +506,8 @@ final class FlowMetalContext {
             maxSpeed: 0,
             energyAlpha: 0,
             energyFloor: 0,
+            energySpikeGain: 0,
+            energyCap: 0,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(threadsPerGroup),
