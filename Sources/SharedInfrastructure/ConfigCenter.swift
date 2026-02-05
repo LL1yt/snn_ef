@@ -175,6 +175,12 @@ enum Validation {
         if learning.weights.boundary < 0 {
             throw ConfigError.invalidLearningParameter("weights.boundary must be ≥ 0 (got \(learning.weights.boundary))")
         }
+        if learning.gainErrorPower < 0 {
+            throw ConfigError.invalidLearningParameter("gain_error_power must be ≥ 0 (got \(learning.gainErrorPower))")
+        }
+        if learning.gainErrorScale < 0 {
+            throw ConfigError.invalidLearningParameter("gain_error_scale must be ≥ 0 (got \(learning.gainErrorScale))")
+        }
         // Bounds arrays
         if learning.bounds.theta.count != 2 {
             throw ConfigError.invalidLearningParameter("bounds.theta must have exactly 2 elements [min, max]")
@@ -602,6 +608,8 @@ public struct ConfigRoot: Decodable {
                 public let negative: Negative
                 public let lr: LearningRates
                 public let weights: LossWeights
+                public let gainErrorPower: Double
+                public let gainErrorScale: Double
                 public let bounds: ParameterBounds
                 public let aggregator: Aggregator
                 public let targets: Targets
@@ -619,6 +627,8 @@ public struct ConfigRoot: Decodable {
                     case negative
                     case lr
                     case weights
+                    case gainErrorPower = "gain_error_power"
+                    case gainErrorScale = "gain_error_scale"
                     case bounds
                     case aggregator
                     case targets
@@ -732,7 +742,7 @@ public struct ConfigRoot: Decodable {
                     }
                 }
 
-                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, logEvery: Int, logEveryUI: Int, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
+                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, logEvery: Int, logEveryUI: Int, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, gainErrorPower: Double = 1.0, gainErrorScale: Double = 1.0, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
                     self.enabled = enabled
                     self.epochs = epochs
                     self.stepsPerEpoch = stepsPerEpoch
@@ -745,6 +755,8 @@ public struct ConfigRoot: Decodable {
                     self.negative = negative
                     self.lr = lr
                     self.weights = weights
+                    self.gainErrorPower = gainErrorPower
+                    self.gainErrorScale = gainErrorScale
                     self.bounds = bounds
                     self.aggregator = aggregator
                     self.targets = targets
@@ -764,6 +776,8 @@ public struct ConfigRoot: Decodable {
                     negative = try container.decode(Negative.self, forKey: .negative)
                     lr = try container.decode(LearningRates.self, forKey: .lr)
                     weights = try container.decode(LossWeights.self, forKey: .weights)
+                    gainErrorPower = try container.decodeIfPresent(Double.self, forKey: .gainErrorPower) ?? 1.0
+                    gainErrorScale = try container.decodeIfPresent(Double.self, forKey: .gainErrorScale) ?? 1.0
                     bounds = try container.decode(ParameterBounds.self, forKey: .bounds)
                     aggregator = try container.decode(Aggregator.self, forKey: .aggregator)
                     targets = try container.decode(Targets.self, forKey: .targets)

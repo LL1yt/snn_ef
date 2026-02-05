@@ -162,13 +162,44 @@ public enum ParameterUpdater {
         yHat: [Float],
         target: [Float],
         learningRate: Float,
-        bounds: (min: Float, max: Float)
+        bounds: (min: Float, max: Float),
+        errorPower: Float = 1.0,
+        errorScale: Float = 1.0
     ) {
         let bins = gains.count
         for b in 0..<bins {
-            let gradient = 2 * (yHat[b] - target[b])
-            gains[b] -= learningRate * gradient
+            let diff = yHat[b] - target[b]
+            let absDiff = Swift.abs(diff)
+            let scale = absDiff > 0 ? (errorScale * pow(absDiff, max(0.0, errorPower - 1.0))) : 0.0
+            gains[b] -= learningRate * (2 * diff * scale)
             gains[b] = clamp(gains[b], min: bounds.min, max: bounds.max)
+        }
+    }
+
+    /// Repel gains away from wrong targets (negative samples)
+    public static func repelGains(
+        gains: inout [Float],
+        yHat: [Float],
+        wrongTargets: [[Float]],
+        learningRate: Float,
+        bounds: (min: Float, max: Float),
+        weight: Float,
+        margin: Float,
+        errorPower: Float = 1.0,
+        errorScale: Float = 1.0
+    ) {
+        guard weight > 0, !wrongTargets.isEmpty else { return }
+        let perTargetScale = weight / Float(max(1, wrongTargets.count))
+        for wrong in wrongTargets {
+            let distance = LossFunctions.l2Distance(yHat, wrong)
+            if margin > 0, distance >= margin { continue }
+            for b in 0..<gains.count {
+                let diff = yHat[b] - wrong[b]
+                let absDiff = Swift.abs(diff)
+                let scale = absDiff > 0 ? (errorScale * pow(absDiff, max(0.0, errorPower - 1.0))) : 0.0
+                gains[b] += learningRate * perTargetScale * (2 * diff * scale)
+                gains[b] = clamp(gains[b], min: bounds.min, max: bounds.max)
+            }
         }
     }
 

@@ -106,12 +106,14 @@ router:
         seed: 42
       negative:
         enabled: true
-        weight: 0.2
+        weight: 0.4
         margin: 0.5
       lr:
-        gain: 0.0008
+        gain: 0.002
         lif: 0.02
         dynamics: 0.003
+      gain_error_power: 1.5
+      gain_error_scale: 0.25
       weights:
         spike: 0.0
         boundary: 0.05

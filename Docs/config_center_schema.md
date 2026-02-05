@@ -177,6 +177,8 @@ router:
         gain: 0.001
         lif: 0.01
         dynamics: 0.005
+      gain_error_power: 1.0     # степень |yHat-target|^p для градиента (≥0)
+      gain_error_scale: 1.0     # общий множитель на градиент gain (≥0)
       weights:
         spike: 0.1
         boundary: 0.05
@@ -211,6 +213,7 @@ Constraints:
 - `learning.dataset.local_path` required when dataset enabled.
 - `learning.dataset.valid_path` optional.
 - `learning.negative.weight ≥ 0`, `learning.negative.margin ≥ 0`.
+- `learning.gain_error_power ≥ 0`, `learning.gain_error_scale ≥ 0`.
 - `learning.eval_every ≥ 1`.
 - `learning.log_every ≥ 1`.
 - `learning.log_every_ui ≥ 1`.

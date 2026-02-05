@@ -16,6 +16,8 @@ public struct LearningConfig {
     public let learningRates: LearningRates
     public let lossWeights: LossWeights
     public let negative: NegativeConfig
+    public let gainErrorPower: Float
+    public let gainErrorScale: Float
     public let bounds: Bounds
     public let aggregatorConfig: AggregatorConfig
 
@@ -29,6 +31,8 @@ public struct LearningConfig {
         learningRates: LearningRates,
         lossWeights: LossWeights,
         negative: NegativeConfig = .disabled,
+        gainErrorPower: Float = 1.0,
+        gainErrorScale: Float = 1.0,
         bounds: Bounds,
         aggregatorConfig: AggregatorConfig
     ) {
@@ -41,6 +45,8 @@ public struct LearningConfig {
         self.learningRates = learningRates
         self.lossWeights = lossWeights
         self.negative = negative
+        self.gainErrorPower = gainErrorPower
+        self.gainErrorScale = gainErrorScale
         self.bounds = bounds
         self.aggregatorConfig = aggregatorConfig
     }
@@ -119,6 +125,8 @@ public struct LearningConfig {
                 weight: Float(learning.negative.weight),
                 margin: Float(learning.negative.margin)
             ),
+            gainErrorPower: Float(learning.gainErrorPower),
+            gainErrorScale: Float(learning.gainErrorScale),
             bounds: .init(
                 theta: (Float(learning.bounds.theta[0]), Float(learning.bounds.theta[1])),
                 radialBias: (Float(learning.bounds.radialBias[0]), Float(learning.bounds.radialBias[1])),
@@ -260,9 +268,9 @@ public final class FlowLearningLoop {
 
         // Compute losses
         let binLoss = LossFunctions.binLoss(yHat: yHatNorm, target: targetNorm, gains: params.gains)
+        let wrongNorm = (learningConfig.negative.enabled && !wrongTargets.isEmpty) ? wrongTargets.map { normalizeBins($0) } : []
         let negativeLoss: Float
-        if learningConfig.negative.enabled, !wrongTargets.isEmpty {
-            let wrongNorm = wrongTargets.map { normalizeBins($0) }
+        if !wrongNorm.isEmpty {
             let base = LossFunctions.negativeMarginLoss(yHat: yHatNorm, wrongTargets: wrongNorm, margin: learningConfig.negative.margin)
             negativeLoss = base * learningConfig.negative.weight
         } else {
@@ -309,8 +317,23 @@ public final class FlowLearningLoop {
                 yHat: yHatNorm,
                 target: targetNorm,
                 learningRate: learningConfig.learningRates.gain,
-                bounds: learningConfig.bounds.gain
+                bounds: learningConfig.bounds.gain,
+                errorPower: learningConfig.gainErrorPower,
+                errorScale: learningConfig.gainErrorScale
             )
+            if !wrongNorm.isEmpty {
+                ParameterUpdater.repelGains(
+                    gains: &params.gains,
+                    yHat: yHatNorm,
+                    wrongTargets: wrongNorm,
+                    learningRate: learningConfig.learningRates.gain,
+                    bounds: learningConfig.bounds.gain,
+                    weight: learningConfig.negative.weight,
+                    margin: learningConfig.negative.margin,
+                    errorPower: learningConfig.gainErrorPower,
+                    errorScale: learningConfig.gainErrorScale
+                )
+            }
 
             ParameterUpdater.updateLifThreshold(
                 threshold: &params.lifThreshold,
