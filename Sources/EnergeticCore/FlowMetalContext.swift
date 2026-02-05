@@ -23,6 +23,7 @@ struct FlowMetalParams {
 }
 
 final class FlowMetalContext {
+    static var lastInitError: String?
     let device: MTLDevice
     private let queue: MTLCommandQueue
     private let stepPipeline: MTLComputePipelineState
@@ -45,20 +46,31 @@ final class FlowMetalContext {
     private var aliveBuffer: MTLBuffer?
 
     init?() {
-        guard let device = MTLCreateSystemDefaultDevice() else { return nil }
-        guard let queue = device.makeCommandQueue() else { return nil }
+        FlowMetalContext.lastInitError = nil
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            FlowMetalContext.lastInitError = "MTLCreateSystemDefaultDevice returned nil"
+            return nil
+        }
+        guard let queue = device.makeCommandQueue() else {
+            FlowMetalContext.lastInitError = "device.makeCommandQueue() returned nil"
+            return nil
+        }
         let library: MTLLibrary
-        if let url = Bundle.module.url(forResource: "default", withExtension: "metallib") {
+        if let url = Bundle.module.url(forResource: "default", withExtension: "metallib", subdirectory: "Shaders")
+            ?? Bundle.module.url(forResource: "default", withExtension: "metallib") {
             do {
                 library = try device.makeLibrary(URL: url)
             } catch {
+                FlowMetalContext.lastInitError = "device.makeLibrary(URL: \(url.path)) failed: \(error)"
                 return nil
             }
-        } else if let metalURL = Bundle.module.url(forResource: "FlowKernels", withExtension: "metal") {
+        } else if let metalURL = Bundle.module.url(forResource: "FlowKernels", withExtension: "metal", subdirectory: "Shaders")
+            ?? Bundle.module.url(forResource: "FlowKernels", withExtension: "metal") {
             do {
                 let source = try String(contentsOf: metalURL, encoding: .utf8)
                 library = try device.makeLibrary(source: source, options: nil)
             } catch {
+                FlowMetalContext.lastInitError = "compile FlowKernels.metal failed at \(metalURL.path): \(error)"
                 return nil
             }
         } else if let lib = device.makeDefaultLibrary() {
@@ -66,14 +78,20 @@ final class FlowMetalContext {
         } else if let lib = try? device.makeDefaultLibrary(bundle: .module) {
             library = lib
         } else {
+            let resourcePath = Bundle.module.resourceURL?.path ?? "nil"
+            FlowMetalContext.lastInitError = "No metallib or .metal source found in bundle. Bundle.module.resourceURL=\(resourcePath)"
             return nil
         }
         guard let stepFunction = library.makeFunction(name: "flow_step"),
-              let finalFunction = library.makeFunction(name: "flow_project_final") else { return nil }
+              let finalFunction = library.makeFunction(name: "flow_project_final") else {
+            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_project_final in library"
+            return nil
+        }
         do {
             self.stepPipeline = try device.makeComputePipelineState(function: stepFunction)
             self.finalPipeline = try device.makeComputePipelineState(function: finalFunction)
         } catch {
+            FlowMetalContext.lastInitError = "makeComputePipelineState failed: \(error)"
             return nil
         }
         self.device = device
@@ -106,6 +124,7 @@ final class FlowMetalContext {
         writeArray(state.energy, to: energyBuffer!, count: count)
         writeArray(state.V, to: vBuffer!, count: count)
         writeArray(state.outputs, to: histogramBuffer!, count: cfg.bins)
+        fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
 
         var gainsCount: UInt32 = 0
         if let gains, gains.count == cfg.bins {
@@ -219,6 +238,162 @@ final class FlowMetalContext {
         return events
     }
 
+    func simulate(
+        initial particles: [FlowParticle],
+        cfg: FlowConfig,
+        baseSeed: UInt32,
+        gains: [Float]?
+    ) -> [Float] {
+        let token = LoggingHub.beginSignpost("flow.run")
+        let count = particles.count
+        guard count > 0 else {
+            LoggingHub.endSignpost("flow.run", token: token)
+            return [Float](repeating: 0, count: cfg.bins)
+        }
+
+        ensureParticleCapacity(count)
+        ensureBinsCapacity(cfg.bins)
+
+        var ids32: [Int32] = []
+        var posX: [Float] = []
+        var posY: [Float] = []
+        var velX: [Float] = []
+        var velY: [Float] = []
+        var energy: [Float] = []
+        var v: [Float] = []
+        ids32.reserveCapacity(count)
+        posX.reserveCapacity(count)
+        posY.reserveCapacity(count)
+        velX.reserveCapacity(count)
+        velY.reserveCapacity(count)
+        energy.reserveCapacity(count)
+        v.reserveCapacity(count)
+
+        for p in particles {
+            ids32.append(Int32(p.id))
+            posX.append(p.pos.x)
+            posY.append(p.pos.y)
+            velX.append(p.vel.x)
+            velY.append(p.vel.y)
+            energy.append(p.energy)
+            v.append(p.V)
+        }
+
+        writeArray(ids32, to: idsBuffer!, count: count)
+        writeArray(posX, to: posXBuffer!, count: count)
+        writeArray(posY, to: posYBuffer!, count: count)
+        writeArray(velX, to: velXBuffer!, count: count)
+        writeArray(velY, to: velYBuffer!, count: count)
+        writeArray(energy, to: energyBuffer!, count: count)
+        writeArray(v, to: vBuffer!, count: count)
+        clearBuffer(histogramBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+        fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
+
+        var gainsCount: UInt32 = 0
+        if let gains, gains.count == cfg.bins {
+            gainsCount = UInt32(gains.count)
+            writeArray(gains, to: gainsBuffer!, count: gains.count)
+        } else {
+            let one: [Float] = [1.0]
+            writeArray(one, to: gainsBuffer!, count: 1)
+        }
+
+        for step in 0..<cfg.T {
+            let params = FlowMetalParams(
+                count: UInt32(count),
+                bins: UInt32(cfg.bins),
+                step: UInt32(step),
+                baseSeed: baseSeed,
+                radius: cfg.radius,
+                lifDecay: cfg.lif.decay,
+                lifThreshold: cfg.lif.threshold,
+                lifReset: cfg.lif.resetValue,
+                radialBias: cfg.dynamics.radialBias,
+                spikeKick: cfg.dynamics.spikeKick,
+                noiseStdPos: cfg.dynamics.noiseStdPos,
+                noiseStdDir: cfg.dynamics.noiseStdDir,
+                maxSpeed: cfg.dynamics.maxSpeed,
+                energyAlpha: cfg.dynamics.energyAlpha,
+                energyFloor: cfg.dynamics.energyFloor,
+                finalWeightPower: cfg.finalWeightPower,
+                gainsCount: gainsCount
+            )
+
+            guard let cmd = queue.makeCommandBuffer(),
+                  let enc = cmd.makeComputeCommandEncoder() else { break }
+            enc.setComputePipelineState(stepPipeline)
+            enc.setBuffer(idsBuffer, offset: 0, index: 0)
+            enc.setBuffer(posXBuffer, offset: 0, index: 1)
+            enc.setBuffer(posYBuffer, offset: 0, index: 2)
+            enc.setBuffer(velXBuffer, offset: 0, index: 3)
+            enc.setBuffer(velYBuffer, offset: 0, index: 4)
+            enc.setBuffer(energyBuffer, offset: 0, index: 5)
+            enc.setBuffer(vBuffer, offset: 0, index: 6)
+            enc.setBuffer(histogramBuffer, offset: 0, index: 7)
+            enc.setBuffer(projectedBinBuffer, offset: 0, index: 8)
+            enc.setBuffer(spikedBuffer, offset: 0, index: 9)
+            enc.setBuffer(aliveBuffer, offset: 0, index: 10)
+            enc.setBuffer(gainsBuffer, offset: 0, index: 11)
+
+            var paramsCopy = params
+            enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 12)
+
+            let stepTG = min(stepPipeline.maxTotalThreadsPerThreadgroup, stepPipeline.threadExecutionWidth * 4)
+            let threadsPerThreadgroup = MTLSize(width: max(1, stepTG), height: 1, depth: 1)
+            let threads = MTLSize(width: count, height: 1, depth: 1)
+            enc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
+            enc.endEncoding()
+            cmd.commit()
+            cmd.waitUntilCompleted()
+        }
+
+        let finalParams = FlowMetalParams(
+            count: UInt32(count),
+            bins: UInt32(cfg.bins),
+            step: UInt32(cfg.T),
+            baseSeed: 0,
+            radius: cfg.radius,
+            lifDecay: 0,
+            lifThreshold: 0,
+            lifReset: 0,
+            radialBias: 0,
+            spikeKick: 0,
+            noiseStdPos: 0,
+            noiseStdDir: 0,
+            maxSpeed: 0,
+            energyAlpha: 0,
+            energyFloor: 0,
+            finalWeightPower: cfg.finalWeightPower,
+            gainsCount: gainsCount
+        )
+
+        guard let finalCmd = queue.makeCommandBuffer(),
+              let finalEnc = finalCmd.makeComputeCommandEncoder() else {
+            LoggingHub.endSignpost("flow.run", token: token)
+            return readArray(from: histogramBuffer!, count: cfg.bins) as [Float]
+        }
+        finalEnc.setComputePipelineState(finalPipeline)
+        finalEnc.setBuffer(posXBuffer, offset: 0, index: 0)
+        finalEnc.setBuffer(posYBuffer, offset: 0, index: 1)
+        finalEnc.setBuffer(energyBuffer, offset: 0, index: 2)
+        finalEnc.setBuffer(histogramBuffer, offset: 0, index: 3)
+        finalEnc.setBuffer(aliveBuffer, offset: 0, index: 4)
+        finalEnc.setBuffer(gainsBuffer, offset: 0, index: 5)
+        var finalParamsCopy = finalParams
+        finalEnc.setBytes(&finalParamsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 6)
+        let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
+        let threadsPerThreadgroup = MTLSize(width: max(1, finalTG), height: 1, depth: 1)
+        let threads = MTLSize(width: count, height: 1, depth: 1)
+        finalEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
+        finalEnc.endEncoding()
+        finalCmd.commit()
+        finalCmd.waitUntilCompleted()
+
+        let outputs: [Float] = readArray(from: histogramBuffer!, count: cfg.bins)
+        LoggingHub.endSignpost("flow.run", token: token)
+        return outputs
+    }
+
     func projectFinal(
         state: inout FlowState,
         cfg: FlowConfig,
@@ -238,6 +413,7 @@ final class FlowMetalContext {
         writeArray(state.posY, to: posYBuffer!, count: count)
         writeArray(state.energy, to: energyBuffer!, count: count)
         writeArray(state.outputs, to: histogramBuffer!, count: cfg.bins)
+        fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
 
         var gainsCount: UInt32 = 0
         if let gains, gains.count == cfg.bins {
@@ -275,9 +451,10 @@ final class FlowMetalContext {
         enc.setBuffer(posYBuffer, offset: 0, index: 1)
         enc.setBuffer(energyBuffer, offset: 0, index: 2)
         enc.setBuffer(histogramBuffer, offset: 0, index: 3)
-        enc.setBuffer(gainsBuffer, offset: 0, index: 4)
+        enc.setBuffer(aliveBuffer, offset: 0, index: 4)
+        enc.setBuffer(gainsBuffer, offset: 0, index: 5)
         var paramsCopy = params
-        enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 5)
+        enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 6)
         let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
         let threadsPerThreadgroup = MTLSize(
             width: max(1, finalTG),
@@ -323,6 +500,13 @@ final class FlowMetalContext {
             guard let base = bytes.baseAddress else { return }
             memcpy(buffer.contents(), base, length)
         }
+    }
+    private func clearBuffer(_ buffer: MTLBuffer, length: Int) {
+        memset(buffer.contents(), 0, length)
+    }
+
+    private func fillBuffer(_ buffer: MTLBuffer, value: UInt8, length: Int) {
+        memset(buffer.contents(), Int32(value), length)
     }
 
     private func readArray<T>(from buffer: MTLBuffer, count: Int) -> [T] {

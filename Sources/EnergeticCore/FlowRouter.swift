@@ -20,7 +20,8 @@ public final class FlowRouter {
         self.cfg = cfg
         self.baseSeed = UInt32(truncatingIfNeeded: seed)
         guard let metal = FlowMetalContext() else {
-            preconditionFailure("Metal device/library unavailable. Ensure Shaders are bundled (Package.swift resources) and default.metallib is present.")
+            let detail = FlowMetalContext.lastInitError ?? "unknown"
+            preconditionFailure("Metal device/library unavailable. Ensure Shaders are bundled (Package.swift resources) and default.metallib is present. Details: \(detail)")
         }
         self.metal = metal
     }
@@ -40,18 +41,8 @@ public final class FlowRouter {
         return metal.step(state: &state, cfg: cfg, baseSeed: baseSeed, gains: gains, emitEvents: true)
     }
 
-    /// Runs for cfg.T steps or until no particles remain; returns filled bins
+    /// Runs for cfg.T steps on GPU without per-step readback; returns filled bins
     public func run(initial particles: [FlowParticle], gains: [Float]? = nil) -> [Float] {
-        var state = FlowState(step: 0, particles: particles, bins: cfg.bins)
-        var t = 0
-        while t < cfg.T && !state.isEmpty {
-            step(state: &state, gains: gains)
-            t += 1
-        }
-        // Final projection at T for remaining particles (weighted by radius)
-        if t >= cfg.T {
-            metal.projectFinal(state: &state, cfg: cfg, gains: gains)
-        }
-        return state.outputs
+        return metal.simulate(initial: particles, cfg: cfg, baseSeed: baseSeed, gains: gains)
     }
 }

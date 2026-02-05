@@ -65,12 +65,17 @@ kernel void flow_step(
     device atomic_float *histogram [[buffer(7)]],
     device int *projectedBin [[buffer(8)]],
     device uchar *spikedOut [[buffer(9)]],
-    device uchar *aliveOut [[buffer(10)]],
+    device uchar *alive [[buffer(10)]],
     device const float *gains [[buffer(11)]],
     constant FlowParams &p [[buffer(12)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= p.count) { return; }
+    if (alive[gid] == 0) {
+        projectedBin[gid] = -1;
+        spikedOut[gid] = 0;
+        return;
+    }
 
     int id = ids[gid];
     float px = posX[gid];
@@ -131,11 +136,11 @@ kernel void flow_step(
     py += vy;
 
     e *= p.energyAlpha;
-    bool alive = true;
+    bool aliveFlag = true;
     int proj = -1;
 
     if (e < p.energyFloor) {
-        alive = false;
+        aliveFlag = false;
     } else {
         float r = sqrt(max(0.0f, px * px + py * py));
         if (r >= p.radius) {
@@ -144,7 +149,7 @@ kernel void flow_step(
             proj = b;
             float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;
             atomic_fetch_add_explicit(&histogram[b], g * max(0.0f, e), memory_order_relaxed);
-            alive = false;
+            aliveFlag = false;
         }
     }
 
@@ -156,7 +161,7 @@ kernel void flow_step(
     V[gid] = v;
     projectedBin[gid] = proj;
     spikedOut[gid] = spiked ? 1 : 0;
-    aliveOut[gid] = alive ? 1 : 0;
+    alive[gid] = aliveFlag ? 1 : 0;
 }
 
 kernel void flow_project_final(
@@ -164,11 +169,13 @@ kernel void flow_project_final(
     device const float *posY [[buffer(1)]],
     device const float *energy [[buffer(2)]],
     device atomic_float *histogram [[buffer(3)]],
-    device const float *gains [[buffer(4)]],
-    constant FlowParams &p [[buffer(5)]],
+    device const uchar *alive [[buffer(4)]],
+    device const float *gains [[buffer(5)]],
+    constant FlowParams &p [[buffer(6)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= p.count) { return; }
+    if (alive[gid] == 0) { return; }
     float px = posX[gid];
     float py = posY[gid];
     float e = energy[gid];
