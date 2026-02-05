@@ -243,12 +243,12 @@ ui:
 
 ```yaml
 histogram_language:
-  enabled: false
+  enabled: true
   normalize_input: true
   normalize_output: true
-  metrics: ["l1", "cosine"]  # допустимые: l1|l2|cosine
+  metrics: ["l1", "l2", "cosine"]  # допустимые: l1|l2|cosine
   retrieval:
-    enabled: false
+    enabled: true
     top_k: 1
     corpus_path: "Artifacts/Corpora/histogram_corpus.jsonl"
 ```
@@ -400,12 +400,12 @@ ui:
   metrics_poll_ms: 200
 
 histogram_language:
-  enabled: false
+  enabled: true
   normalize_input: true
   normalize_output: true
-  metrics: ["l1", "cosine"]
+  metrics: ["l1", "l2", "cosine"]
   retrieval:
-    enabled: false
+    enabled: true
     top_k: 1
     corpus_path: "Artifacts/Corpora/histogram_corpus.jsonl"
 ```

@@ -15,6 +15,7 @@ public struct LearningMetricsView: View {
     @State private var labelMode: LabelMode = .key
     @State private var showInputOverlay: Bool = false
     @State private var showProjectedOverlay: Bool = false
+    @State private var showDecodePreview: Bool = false
     private let capsuleConfig: ConfigRoot.Capsule?
 
     public init(logFileURL: URL?, title: String = "Learning metrics", pollInterval: TimeInterval = 0.5, maxRecords: Int = 200, capsuleConfig: ConfigRoot.Capsule? = nil) {
@@ -186,43 +187,48 @@ public struct LearningMetricsView: View {
             let inputRaw = latest.inputHistogram
             let projectedRaw = latest.projectedHistogram
 
-            guard let outputRaw else {
+            if let outputRaw {
+                let series = downsampleHistogramSeries(
+                    output: outputRaw,
+                    target: targetRaw,
+                    input: inputRaw,
+                    projected: projectedRaw,
+                    maxBins: 128
+                )
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Histogram (output vs target)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    HistogramComparisonView(
+                        output: series.output,
+                        target: series.target,
+                        input: showInputOverlay ? series.input : nil,
+                        projected: showProjectedOverlay ? series.projected : nil
+                    )
+                    .frame(height: 180)
+                    histogramOverlayLegend(
+                        hasTarget: series.target != nil,
+                        hasInput: series.input != nil,
+                        hasProjected: series.projected != nil
+                    )
+                    histogramSignatureView(output: outputRaw, target: targetRaw)
+                    predictionPanel(record: latest)
+                    histogramOverlayToggles(
+                        hasInput: series.input != nil,
+                        hasProjected: series.projected != nil
+                    )
+                    decodePreviewToggle
+                    retrievalPanel(record: latest)
+                }
+            } else {
                 Text("Histogram not available in log payload.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
-                return
             }
-
-            let series = downsampleHistogramSeries(
-                output: outputRaw,
-                target: targetRaw,
-                input: inputRaw,
-                projected: projectedRaw,
-                maxBins: 128
-            )
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Histogram (output vs target)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                HistogramComparisonView(
-                    output: series.output,
-                    target: series.target,
-                    input: showInputOverlay ? series.input : nil,
-                    projected: showProjectedOverlay ? series.projected : nil
-                )
-                    .frame(height: 180)
-                histogramOverlayLegend(
-                    hasTarget: series.target != nil,
-                    hasInput: series.input != nil,
-                    hasProjected: series.projected != nil
-                )
-                histogramSignatureView(output: outputRaw, target: targetRaw)
-                predictionPanel(record: latest)
-                histogramOverlayToggles(
-                    hasInput: series.input != nil,
-                    hasProjected: series.projected != nil
-                )
-            }
+        } else {
+            Text("Histogram not available in log payload.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -269,7 +275,7 @@ public struct LearningMetricsView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundColor(.secondary)
             }
-            Text("Histogram is orderless; decoding requires sequence-level bins below.")
+            Text("Histogram is orderless; decode preview is debug-only.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -291,21 +297,27 @@ public struct LearningMetricsView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
 
-                if let config = capsuleConfig {
-                    let decode = decodePrediction(predictedBins, config: config)
-                    if let error = decode.error {
-                        Text("Capsule decode failed: \(error)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                if showDecodePreview {
+                    if let config = capsuleConfig {
+                        let decode = decodePrediction(predictedBins, config: config)
+                        if let error = decode.error {
+                            Text("Capsule decode failed: \(error)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        } else {
+                            let suffix = decode.truncated ? "…" : ""
+                            Text("Decoded text (\(decode.byteCount) bytes): \(decode.text)\(suffix)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(4)
+                        }
                     } else {
-                        let suffix = decode.truncated ? "…" : ""
-                        Text("Decoded text (\(decode.byteCount) bytes): \(decode.text)\(suffix)")
+                        Text("Capsule decode unavailable (capsule config missing).")
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                            .lineLimit(4)
                     }
                 } else {
-                    Text("Capsule decode unavailable (capsule config missing).")
+                    Text("Decode preview is disabled (debug only).")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -542,6 +554,33 @@ public struct LearningMetricsView: View {
         .foregroundColor(.secondary)
     }
 
+    private var decodePreviewToggle: some View {
+        Toggle("Decode preview (debug)", isOn: $showDecodePreview)
+            .toggleStyle(.switch)
+            .font(.caption2)
+            .foregroundColor(.secondary)
+    }
+
+    @ViewBuilder
+    private func retrievalPanel(record: LearningLogPayload) -> some View {
+        if let retrieval = record.retrieval {
+            let metric = retrieval.metric
+            let score = String(format: "%.4f", retrieval.score)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Closest example (\(metric))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(retrieval.text)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+                Text("score \(score)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
     private func topBinsSignature(values: [Float], maxCount: Int) -> String {
         guard !values.isEmpty, maxCount > 0 else { return "n/a" }
         let ranked = values.enumerated()
@@ -773,11 +812,18 @@ struct LearningLogPayload: Decodable {
     let inputHistogram: [Float]?
     let outputHistogram: [Float]?
     let targetHistogram: [Float]?
+    let retrieval: Retrieval?
     let params: Params
     let bins: Bins
     let histogram: Histogram?
     let traces: [Trace]?
     let paths: [Path]?
+
+    struct Retrieval: Decodable {
+        let text: String
+        let score: Float
+        let metric: String
+    }
 
     private static let prefix = "learning.metrics "
 

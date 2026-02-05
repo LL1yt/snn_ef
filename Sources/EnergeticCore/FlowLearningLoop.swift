@@ -157,10 +157,11 @@ public final class FlowLearningLoop {
     private var params: LearnableParameters
     private var router: FlowRouter
     private var previousBinLoss: Float = .infinity
+    private let retriever: HistogramRetriever?
 
     private var gainsLiveOnGPU: Bool = false
 
-    public init(flowConfig: FlowConfig, learningConfig: LearningConfig, seed: UInt64) {
+    public init(flowConfig: FlowConfig, learningConfig: LearningConfig, seed: UInt64, retriever: HistogramRetriever? = nil) {
         self.flowConfig = flowConfig
         self.learningConfig = learningConfig
         self.params = LearnableParameters(
@@ -170,6 +171,7 @@ public final class FlowLearningLoop {
             spikeKick: flowConfig.dynamics.spikeKick
         )
         self.router = FlowRouter(cfg: flowConfig, seed: seed)
+        self.retriever = retriever
     }
 
     /// Runs one epoch of learning
@@ -522,6 +524,7 @@ public final class FlowLearningLoop {
         let histogramMatchL1: Float?
         let histogramMatchL2: Float?
         let histogramMatchCosine: Float?
+        let retrievalResult: HistogramRetrievalResult?
 
         // Prefer GPU-provided statistics when available.
         if let scalars = gpuLearningScalars {
@@ -535,6 +538,7 @@ public final class FlowLearningLoop {
             histogramMatchL1 = scalars.histogramMatchL1
             histogramMatchL2 = nil
             histogramMatchCosine = nil
+            retrievalResult = nil
         } else {
             nonzeroBins = yHat.filter { $0 > 0 }.count
             yHatStats = computeBinStatistics(yHat)
@@ -547,6 +551,11 @@ public final class FlowLearningLoop {
                 histogramMatchL1 = nil
                 histogramMatchL2 = nil
                 histogramMatchCosine = nil
+            }
+            if needsUILog, let retriever, !yHatNorm.isEmpty {
+                retrievalResult = retriever.retrieve(normalized: yHatNorm).first
+            } else {
+                retrievalResult = nil
             }
         }
 
@@ -681,6 +690,7 @@ public final class FlowLearningLoop {
                 inputHistogram: inputHistogram,
                 outputHistogram: (yHat.count == flowConfig.bins) ? yHat : nil,
                 targetHistogram: (targets.count == flowConfig.bins) ? targets : nil,
+                retrieval: retrievalResult,
                 traces: traces,
                 paths: paths
             )
@@ -794,6 +804,7 @@ public final class FlowLearningLoop {
         inputHistogram: [Float]?,
         outputHistogram: [Float]?,
         targetHistogram: [Float]?,
+        retrieval: HistogramRetrievalResult?,
         traces: [LearningLogPayload.Trace],
         paths: [LearningLogPayload.Path]
     ) {
@@ -828,6 +839,7 @@ public final class FlowLearningLoop {
             inputHistogram: inputHistogram,
             outputHistogram: outputHistogram,
             targetHistogram: targetHistogram,
+            retrieval: retrieval.map { .init(text: $0.text, score: $0.score, metric: $0.metric.rawValue) },
             params: .init(
                 lif: params.lifThreshold,
                 radialBias: params.radialBias,
@@ -862,6 +874,7 @@ public final class FlowLearningLoop {
         struct Params: Codable { let lif: Float; let radialBias: Float; let spikeKick: Float; let gainMean: Float; let gainVariance: Float }
         struct Bins: Codable { let nonzero: Int; let mean: Float; let variance: Float; let min: Float; let max: Float }
         struct Histogram: Codable { let yHat: [Float]; let target: [Float]? }
+        struct Retrieval: Codable { let text: String; let score: Float; let metric: String }
         struct TraceStep: Codable {
             let t: Int
             let r: Float
@@ -900,6 +913,7 @@ public final class FlowLearningLoop {
         let inputHistogram: [Float]?
         let outputHistogram: [Float]?
         let targetHistogram: [Float]?
+        let retrieval: Retrieval?
         let params: Params
         let bins: Bins
         let histogram: Histogram?

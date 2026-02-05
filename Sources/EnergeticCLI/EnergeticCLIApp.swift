@@ -177,11 +177,28 @@ struct EnergeticCLI {
         let flowCfg = FlowConfig.from(snapshot.root.router)
         let learningCfg = LearningConfig.from(snapshot.root.router.flow, radius: Float(snapshot.root.router.flow.radius))
 
+        let histogramConfig = snapshot.root.histogramLanguage
+        let retriever: HistogramRetriever?
+        if histogramConfig.enabled && histogramConfig.retrieval.enabled {
+            let metricName = histogramConfig.metrics.first?.lowercased() ?? "l1"
+            let metric = HistogramRetrievalMetric(rawValue: metricName) ?? .l1
+            do {
+                let corpus = try HistogramRetriever.loadCorpus(from: histogramConfig.retrieval.corpusPath, bins: flowCfg.bins)
+                retriever = try HistogramRetriever(entries: corpus, metric: metric, topK: histogramConfig.retrieval.topK, bins: flowCfg.bins)
+                LoggingHub.emit(process: "cli.main", level: .info, message: "Histogram retrieval enabled: metric=\(metric.rawValue) top_k=\(histogramConfig.retrieval.topK)")
+            } catch {
+                Diagnostics.fail("Failed to load retrieval corpus: \(error.localizedDescription)", processID: processID)
+            }
+        } else {
+            retriever = nil
+        }
+
         // Create learning loop
         let learningLoop = FlowLearningLoop(
             flowConfig: flowCfg,
             learningConfig: learningCfg,
-            seed: UInt64(snapshot.root.seed)
+            seed: UInt64(snapshot.root.seed),
+            retriever: retriever
         )
 
         let datasetConfig = snapshot.root.router.flow.learning.dataset
@@ -285,7 +302,8 @@ struct EnergeticCLI {
             : FlowLearningLoop(
                 flowConfig: flowCfg,
                 learningConfig: learningCfg,
-                seed: UInt64(snapshot.root.seed) &+ 0xE1A1_0001
+                seed: UInt64(snapshot.root.seed) &+ 0xE1A1_0001,
+                retriever: retriever
             )
 
         // UI learning payloads (and the slow-path tracing they require) are only useful when UI is enabled.
