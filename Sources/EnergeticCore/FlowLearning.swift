@@ -56,6 +56,8 @@ public struct LearningMetrics: Sendable, Codable {
     public let paramDeltas: ParameterDeltas
     public let optionAccuracy: Float?
     public let histogramMatchL1: Float?
+    public let histogramMatchL2: Float?
+    public let histogramMatchCosine: Float?
 
     public init(
         epoch: Int,
@@ -71,7 +73,9 @@ public struct LearningMetrics: Sendable, Codable {
         yHatStats: BinStatistics,
         paramDeltas: ParameterDeltas,
         optionAccuracy: Float? = nil,
-        histogramMatchL1: Float? = nil
+        histogramMatchL1: Float? = nil,
+        histogramMatchL2: Float? = nil,
+        histogramMatchCosine: Float? = nil
     ) {
         self.epoch = epoch
         self.totalLoss = totalLoss
@@ -87,6 +91,8 @@ public struct LearningMetrics: Sendable, Codable {
         self.paramDeltas = paramDeltas
         self.optionAccuracy = optionAccuracy
         self.histogramMatchL1 = histogramMatchL1
+        self.histogramMatchL2 = histogramMatchL2
+        self.histogramMatchCosine = histogramMatchCosine
     }
 
     enum CodingKeys: String, CodingKey {
@@ -104,6 +110,8 @@ public struct LearningMetrics: Sendable, Codable {
         case paramDeltas
         case optionAccuracy
         case histogramMatchL1
+        case histogramMatchL2
+        case histogramMatchCosine
     }
 
     public init(from decoder: Decoder) throws {
@@ -122,6 +130,8 @@ public struct LearningMetrics: Sendable, Codable {
         paramDeltas = try c.decode(ParameterDeltas.self, forKey: .paramDeltas)
         optionAccuracy = try? c.decode(Float.self, forKey: .optionAccuracy)
         histogramMatchL1 = try? c.decode(Float.self, forKey: .histogramMatchL1)
+        histogramMatchL2 = try? c.decode(Float.self, forKey: .histogramMatchL2)
+        histogramMatchCosine = try? c.decode(Float.self, forKey: .histogramMatchCosine)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -140,6 +150,8 @@ public struct LearningMetrics: Sendable, Codable {
         try c.encode(paramDeltas, forKey: .paramDeltas)
         try c.encodeIfPresent(optionAccuracy, forKey: .optionAccuracy)
         try c.encodeIfPresent(histogramMatchL1, forKey: .histogramMatchL1)
+        try c.encodeIfPresent(histogramMatchL2, forKey: .histogramMatchL2)
+        try c.encodeIfPresent(histogramMatchCosine, forKey: .histogramMatchCosine)
     }
 
     public struct BinStatistics: Sendable, Codable {

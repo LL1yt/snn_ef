@@ -519,6 +519,8 @@ public final class FlowLearningLoop {
         let nonzeroBins: Int
         let yHatStats: LearningMetrics.BinStatistics
         let histogramMatchL1: Float?
+        let histogramMatchL2: Float?
+        let histogramMatchCosine: Float?
 
         // Prefer GPU-provided statistics when available.
         if let scalars = gpuLearningScalars {
@@ -530,10 +532,21 @@ public final class FlowLearningLoop {
                 max: scalars.yHatStatsMax
             )
             histogramMatchL1 = scalars.histogramMatchL1
+            histogramMatchL2 = nil
+            histogramMatchCosine = nil
         } else {
             nonzeroBins = yHat.filter { $0 > 0 }.count
             yHatStats = computeBinStatistics(yHat)
-            histogramMatchL1 = computeHistogramMatchL1(yHatNorm: yHatNorm, targetNorm: targetNorm)
+            if yHatNorm.count == targetNorm.count, !yHatNorm.isEmpty {
+                let metricValues = HistogramMetrics.compute(yHatNorm, targetNorm)
+                histogramMatchL1 = metricValues.l1
+                histogramMatchL2 = metricValues.l2
+                histogramMatchCosine = metricValues.cosine
+            } else {
+                histogramMatchL1 = nil
+                histogramMatchL2 = nil
+                histogramMatchCosine = nil
+            }
         }
 
         let paramDeltas: LearningMetrics.ParameterDeltas
@@ -639,7 +652,9 @@ public final class FlowLearningLoop {
             yHatStats: yHatStats,
             paramDeltas: paramDeltas,
             optionAccuracy: optionAccuracy,
-            histogramMatchL1: histogramMatchL1
+            histogramMatchL1: histogramMatchL1,
+            histogramMatchL2: histogramMatchL2,
+            histogramMatchCosine: histogramMatchCosine
         )
 
 #if canImport(SharedInfrastructure)
@@ -759,13 +774,6 @@ public final class FlowLearningLoop {
     }
 #endif
 
-    private func computeHistogramMatchL1(yHatNorm: [Float], targetNorm: [Float]) -> Float? {
-        guard yHatNorm.count == targetNorm.count, !yHatNorm.isEmpty else { return nil }
-        let sum: Float = zip(yHatNorm, targetNorm).reduce(0) { acc, pair in
-            acc + Swift.abs(pair.0 - pair.1)
-        }
-        return sum
-    }
 #if canImport(SharedInfrastructure)
     private static let learningLogPrefix = "learning.metrics "
 
