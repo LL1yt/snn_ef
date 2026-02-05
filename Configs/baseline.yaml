@@ -69,13 +69,15 @@ router:
     dynamics:
       radial_bias: 0.22
       spike_kick: 0.8
+      gain_spike_kick_scale: 1.0
       noise_std_pos: 0.01
       noise_std_dir: 0.05
       max_speed: 1.0
-      energy_alpha: 0.985
+      energy_alpha: 1.0
       energy_floor: 1.0e-7
-      energy_spike_gain: 2.0
-      energy_cap: 512.0
+      energy_spike_gain: 6.0
+      energy_gain_bias: 0.5
+      energy_cap: 1024.0
     interactions:
       enabled: false
       type: "none"

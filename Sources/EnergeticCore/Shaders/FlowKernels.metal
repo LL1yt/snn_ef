@@ -12,12 +12,14 @@ struct FlowParams {
     float lifReset;
     float radialBias;
     float spikeKick;
+    float gainSpikeKickScale;
     float noiseStdPos;
     float noiseStdDir;
     float maxSpeed;
     float energyAlpha;
     float energyFloor;
     float energySpikeGain;
+    float energyGainBias;
     float energyCap;
     float finalWeightPower;
     uint gainsCount;
@@ -115,9 +117,22 @@ kernel void flow_step(
         dirX = cos(ang);
         dirY = sin(ang);
     }
+    float gainFactor = 1.0f;
+    if (p.gainsCount == p.bins) {
+        float thetaGain = atan2(py, px);
+        int gainBin = binIndex(thetaGain, p.bins);
+        gainFactor = max(0.0f, gains[gainBin]);
+    }
 
     vx += p.radialBias * dirX;
     vy += p.radialBias * dirY;
+
+    float spikeKick = p.spikeKick;
+    if (p.gainSpikeKickScale > 0.0f && p.gainsCount == p.bins) {
+        float kickScale = 1.0f + p.gainSpikeKickScale * (gainFactor - 1.0f);
+        kickScale = max(0.0f, kickScale);
+        spikeKick *= kickScale;
+    }
 
     if (spiked) {
         float jitterAng = randUniform(id, p.step, 3, p.baseSeed, -3.141592653589793f, 3.141592653589793f) * p.noiseStdDir;
@@ -125,8 +140,8 @@ kernel void flow_step(
         float rotY = sin(jitterAng);
         float kickX = dirX * rotX - dirY * rotY;
         float kickY = dirX * rotY + dirY * rotX;
-        vx += p.spikeKick * kickX;
-        vy += p.spikeKick * kickY;
+        vx += spikeKick * kickX;
+        vy += spikeKick * kickY;
     }
 
     float noiseAng = randUniform(id, p.step, 4, p.baseSeed, -3.141592653589793f, 3.141592653589793f);
@@ -143,9 +158,14 @@ kernel void flow_step(
     px += vx;
     py += vy;
 
+
     e *= p.energyAlpha;
+    if (p.energyGainBias > 0.0f && p.gainsCount == p.bins) {
+        float extra = p.energyGainBias * (gainFactor - 1.0f);
+        e += extra;
+    }
     if (spiked && p.energySpikeGain > 0.0f) {
-        e += p.energySpikeGain;
+        e += p.energySpikeGain * gainFactor;
     }
     if (p.energyCap > 0.0f) {
         e = min(e, p.energyCap);

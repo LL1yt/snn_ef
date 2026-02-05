@@ -13,12 +13,14 @@ struct FlowMetalParams {
     var lifReset: Float
     var radialBias: Float
     var spikeKick: Float
+    var gainSpikeKickScale: Float
     var noiseStdPos: Float
     var noiseStdDir: Float
     var maxSpeed: Float
     var energyAlpha: Float
     var energyFloor: Float
     var energySpikeGain: Float
+    var energyGainBias: Float
     var energyCap: Float
     var finalWeightPower: Float
     var gainsCount: UInt32
@@ -161,12 +163,14 @@ final class FlowMetalContext {
             lifReset: cfg.lif.resetValue,
             radialBias: cfg.dynamics.radialBias,
             spikeKick: cfg.dynamics.spikeKick,
+            gainSpikeKickScale: cfg.dynamics.gainSpikeKickScale,
             noiseStdPos: cfg.dynamics.noiseStdPos,
             noiseStdDir: cfg.dynamics.noiseStdDir,
             maxSpeed: cfg.dynamics.maxSpeed,
             energyAlpha: cfg.dynamics.energyAlpha,
             energyFloor: cfg.dynamics.energyFloor,
             energySpikeGain: cfg.dynamics.energySpikeGain,
+            energyGainBias: cfg.dynamics.energyGainBias,
             energyCap: cfg.dynamics.energyCap,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
@@ -349,12 +353,14 @@ final class FlowMetalContext {
             lifReset: cfg.lif.resetValue,
             radialBias: cfg.dynamics.radialBias,
             spikeKick: cfg.dynamics.spikeKick,
+            gainSpikeKickScale: cfg.dynamics.gainSpikeKickScale,
             noiseStdPos: cfg.dynamics.noiseStdPos,
             noiseStdDir: cfg.dynamics.noiseStdDir,
             maxSpeed: cfg.dynamics.maxSpeed,
             energyAlpha: cfg.dynamics.energyAlpha,
             energyFloor: cfg.dynamics.energyFloor,
             energySpikeGain: cfg.dynamics.energySpikeGain,
+            energyGainBias: cfg.dynamics.energyGainBias,
             energyCap: cfg.dynamics.energyCap,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
@@ -403,12 +409,14 @@ final class FlowMetalContext {
             lifReset: 0,
             radialBias: 0,
             spikeKick: 0,
+            gainSpikeKickScale: 0,
             noiseStdPos: 0,
             noiseStdDir: 0,
             maxSpeed: 0,
             energyAlpha: 0,
             energyFloor: 0,
             energySpikeGain: 0,
+            energyGainBias: 0,
             energyCap: 0,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
@@ -501,12 +509,14 @@ final class FlowMetalContext {
             lifReset: 0,
             radialBias: 0,
             spikeKick: 0,
+            gainSpikeKickScale: 0,
             noiseStdPos: 0,
             noiseStdDir: 0,
             maxSpeed: 0,
             energyAlpha: 0,
             energyFloor: 0,
             energySpikeGain: 0,
+            energyGainBias: 0,
             energyCap: 0,
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,

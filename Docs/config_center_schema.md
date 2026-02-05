@@ -133,12 +133,14 @@ router:
     dynamics:
       radial_bias: 0.15           # сила внешнего дрейфа наружу
       spike_kick: 0.5             # масштаб импульса при спайке (≥0)
+      gain_spike_kick_scale: 0.0  # масштаб влияния gain на spike_kick (≥0)
       noise_std_pos: 0.01         # шум позиции за шаг
       noise_std_dir: 0.05         # шум направления/скачка
       max_speed: 1.0              # ограничение скорости (>0)
-      energy_alpha: 0.9           # затухание энергии за шаг (0,1]
+      energy_alpha: 0.9           # затухание энергии за шаг (0,1], 1.0 = без затухания
       energy_floor: 1.0e-5        # порог отсечения (≥0)
       energy_spike_gain: 0.0      # добавка энергии при спайке (≥0)
+      energy_gain_bias: 0.0       # добавка энергии за шаг от gain, скейл (gain-1) (≥0)
       energy_cap: 0.0             # верхняя граница энергии (0 = без cap)
     interactions:
       enabled: false
@@ -203,7 +205,7 @@ Constraints:
 - `flow.T ≥ 1`, `flow.radius > 0`, `0 ≤ seed_radius < radius`.
 - `flow.compute_backend` если указан, должен быть `metal`.
 - `lif.decay ∈ (0,1)`, `lif.threshold ∈ (0,1]`.
-- `dynamics.spike_kick ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`, `energy_spike_gain ≥ 0`, `energy_cap ≥ 0`.
+- `dynamics.spike_kick ≥ 0`, `dynamics.gain_spike_kick_scale ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`, `energy_spike_gain ≥ 0`, `energy_gain_bias ≥ 0`, `energy_cap ≥ 0`.
 - `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.
 - `projection.final_weight_power > 0`.
 - `learning.dataset.local_path` required when dataset enabled.

@@ -26,22 +26,26 @@ public struct FlowConfig: Sendable, Equatable {
     public struct Dynamics: Sendable, Equatable {
         public let radialBias: Float
         public let spikeKick: Float
+        public let gainSpikeKickScale: Float
         public let noiseStdPos: Float
         public let noiseStdDir: Float
         public let maxSpeed: Float
         public let energyAlpha: Float
         public let energyFloor: Float
         public let energySpikeGain: Float
+        public let energyGainBias: Float
         public let energyCap: Float
-        public init(radialBias: Float, spikeKick: Float, noiseStdPos: Float, noiseStdDir: Float, maxSpeed: Float, energyAlpha: Float, energyFloor: Float, energySpikeGain: Float, energyCap: Float) {
+        public init(radialBias: Float, spikeKick: Float, gainSpikeKickScale: Float, noiseStdPos: Float, noiseStdDir: Float, maxSpeed: Float, energyAlpha: Float, energyFloor: Float, energySpikeGain: Float, energyGainBias: Float, energyCap: Float) {
             self.radialBias = radialBias
             self.spikeKick = spikeKick
+            self.gainSpikeKickScale = gainSpikeKickScale
             self.noiseStdPos = noiseStdPos
             self.noiseStdDir = noiseStdDir
             self.maxSpeed = maxSpeed
             self.energyAlpha = energyAlpha
             self.energyFloor = energyFloor
             self.energySpikeGain = energySpikeGain
+            self.energyGainBias = energyGainBias
             self.energyCap = energyCap
         }
     }
@@ -201,12 +205,14 @@ extension FlowConfig {
             dynamics: .init(
                 radialBias: Float(f.dynamics.radialBias),
                 spikeKick: Float(f.dynamics.spikeKick),
+                gainSpikeKickScale: Float(f.dynamics.gainSpikeKickScale),
                 noiseStdPos: Float(f.dynamics.noiseStdPos),
                 noiseStdDir: Float(f.dynamics.noiseStdDir),
                 maxSpeed: Float(f.dynamics.maxSpeed),
                 energyAlpha: Float(f.dynamics.energyAlpha),
                 energyFloor: Float(f.dynamics.energyFloor),
                 energySpikeGain: Float(f.dynamics.energySpikeGain),
+                energyGainBias: Float(f.dynamics.energyGainBias),
                 energyCap: Float(f.dynamics.energyCap)
             )
         )

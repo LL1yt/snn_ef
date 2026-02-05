@@ -415,12 +415,14 @@ public final class FlowLearningLoop {
         let updatedDynamics = FlowConfig.Dynamics(
             radialBias: params.radialBias,
             spikeKick: params.spikeKick,
+            gainSpikeKickScale: flowConfig.dynamics.gainSpikeKickScale,
             noiseStdPos: flowConfig.dynamics.noiseStdPos,
             noiseStdDir: flowConfig.dynamics.noiseStdDir,
             maxSpeed: flowConfig.dynamics.maxSpeed,
             energyAlpha: flowConfig.dynamics.energyAlpha,
             energyFloor: flowConfig.dynamics.energyFloor,
             energySpikeGain: flowConfig.dynamics.energySpikeGain,
+            energyGainBias: flowConfig.dynamics.energyGainBias,
             energyCap: flowConfig.dynamics.energyCap
         )
         let updatedConfig = FlowConfig(

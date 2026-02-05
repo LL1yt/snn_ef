@@ -93,6 +93,9 @@ enum Validation {
         if flow.dynamics.spikeKick < 0 {
             throw ConfigError.invalidFlowParameter("dynamics.spike_kick must be ≥ 0")
         }
+        if flow.dynamics.gainSpikeKickScale < 0 {
+            throw ConfigError.invalidFlowParameter("dynamics.gain_spike_kick_scale must be ≥ 0")
+        }
         if flow.dynamics.maxSpeed <= 0 {
             throw ConfigError.invalidFlowParameter("dynamics.max_speed must be > 0")
         }
@@ -104,6 +107,9 @@ enum Validation {
         }
         if flow.dynamics.energySpikeGain < 0 {
             throw ConfigError.invalidFlowParameter("dynamics.energy_spike_gain must be ≥ 0")
+        }
+        if flow.dynamics.energyGainBias < 0 {
+            throw ConfigError.invalidFlowParameter("dynamics.energy_gain_bias must be ≥ 0")
         }
         if flow.dynamics.energyCap < 0 {
             throw ConfigError.invalidFlowParameter("dynamics.energy_cap must be ≥ 0 (0 = no cap)")
@@ -482,23 +488,27 @@ public struct ConfigRoot: Decodable {
             public struct Dynamics: Decodable {
                 public let radialBias: Double
                 public let spikeKick: Double
+                public let gainSpikeKickScale: Double
                 public let noiseStdPos: Double
                 public let noiseStdDir: Double
                 public let maxSpeed: Double
                 public let energyAlpha: Double
                 public let energyFloor: Double
                 public let energySpikeGain: Double
+                public let energyGainBias: Double
                 public let energyCap: Double
 
                 enum CodingKeys: String, CodingKey {
                     case radialBias = "radial_bias"
                     case spikeKick = "spike_kick"
+                    case gainSpikeKickScale = "gain_spike_kick_scale"
                     case noiseStdPos = "noise_std_pos"
                     case noiseStdDir = "noise_std_dir"
                     case maxSpeed = "max_speed"
                     case energyAlpha = "energy_alpha"
                     case energyFloor = "energy_floor"
                     case energySpikeGain = "energy_spike_gain"
+                    case energyGainBias = "energy_gain_bias"
                     case energyCap = "energy_cap"
                 }
 
@@ -506,34 +516,40 @@ public struct ConfigRoot: Decodable {
                     let container = try decoder.container(keyedBy: CodingKeys.self)
                     radialBias = try container.decode(Double.self, forKey: .radialBias)
                     spikeKick = try container.decode(Double.self, forKey: .spikeKick)
+                    gainSpikeKickScale = try container.decodeIfPresent(Double.self, forKey: .gainSpikeKickScale) ?? 0.0
                     noiseStdPos = try container.decode(Double.self, forKey: .noiseStdPos)
                     noiseStdDir = try container.decode(Double.self, forKey: .noiseStdDir)
                     maxSpeed = try container.decode(Double.self, forKey: .maxSpeed)
                     energyAlpha = try container.decode(Double.self, forKey: .energyAlpha)
                     energyFloor = try container.decode(Double.self, forKey: .energyFloor)
                     energySpikeGain = try container.decodeIfPresent(Double.self, forKey: .energySpikeGain) ?? 0.0
+                    energyGainBias = try container.decodeIfPresent(Double.self, forKey: .energyGainBias) ?? 0.0
                     energyCap = try container.decodeIfPresent(Double.self, forKey: .energyCap) ?? 0.0
                 }
 
                 public init(
                     radialBias: Double,
                     spikeKick: Double,
+                    gainSpikeKickScale: Double = 0.0,
                     noiseStdPos: Double,
                     noiseStdDir: Double,
                     maxSpeed: Double,
                     energyAlpha: Double,
                     energyFloor: Double,
                     energySpikeGain: Double = 0.0,
+                    energyGainBias: Double = 0.0,
                     energyCap: Double = 0.0
                 ) {
                     self.radialBias = radialBias
                     self.spikeKick = spikeKick
+                    self.gainSpikeKickScale = gainSpikeKickScale
                     self.noiseStdPos = noiseStdPos
                     self.noiseStdDir = noiseStdDir
                     self.maxSpeed = maxSpeed
                     self.energyAlpha = energyAlpha
                     self.energyFloor = energyFloor
                     self.energySpikeGain = energySpikeGain
+                    self.energyGainBias = energyGainBias
                     self.energyCap = energyCap
                 }
             }
