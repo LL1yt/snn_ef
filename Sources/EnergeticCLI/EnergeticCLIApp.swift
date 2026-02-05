@@ -170,34 +170,54 @@ struct EnergeticCLI {
         )
 
         let datasetConfig = snapshot.root.router.flow.learning.dataset
-        let useDataset = datasetPath != nil || !datasetConfig.localPath.isEmpty
+        let useDataset = datasetPath != nil || !datasetConfig.localPath.isEmpty || datasetConfig.autoScan
 
         var trainSamples: [LogiQASample] = []
         var validSamples: [LogiQASample] = []
         if useDataset {
-            let trainPath = datasetPath ?? datasetConfig.localPath
-            if !FileManager.default.fileExists(atPath: trainPath) {
-                Diagnostics.fail(
-                    "Dataset not found at \(trainPath). Run Tools/logiqa_prepare.swift or Tools/ethics_prepare.py, or specify --dataset PATH.",
-                    processID: processID
-                )
-            }
             do {
+                let trainPaths = resolveDatasetPaths(
+                    explicitPath: datasetPath,
+                    fallbackPath: datasetConfig.localPath,
+                    autoScan: datasetConfig.autoScan,
+                    fileName: "prepared_train.jsonl"
+                )
+                if trainPaths.isEmpty {
+                    Diagnostics.fail(
+                        "No dataset files found. Provide --dataset PATH, set learning.dataset.local_path, or enable learning.dataset.auto_scan with Artifacts/Datasets/*/prepared_train.jsonl present.",
+                        processID: processID
+                    )
+                }
                 trainSamples = try LogiQADatasetLoader.loadJSONL(
-                    from: trainPath,
+                    from: trainPaths,
                     limit: datasetConfig.trainLimit,
                     shuffle: datasetConfig.shuffle,
                     seed: UInt64(datasetConfig.seed)
                 )
-                LoggingHub.emit(process: "cli.main", level: .info, message: "Loaded LogiQA train samples: \(trainSamples.count)")
-                if let validPath = datasetConfig.validPath, FileManager.default.fileExists(atPath: validPath) {
+                LoggingHub.emit(
+                    process: "cli.main",
+                    level: .info,
+                    message: "Loaded train samples: \(trainSamples.count) from \(trainPaths.count) file(s)"
+                )
+
+                let validPaths = resolveDatasetPaths(
+                    explicitPath: nil,
+                    fallbackPath: datasetConfig.validPath ?? "",
+                    autoScan: datasetConfig.autoScan,
+                    fileName: "prepared_valid.jsonl"
+                )
+                if !validPaths.isEmpty {
                     validSamples = try LogiQADatasetLoader.loadJSONL(
-                        from: validPath,
+                        from: validPaths,
                         limit: datasetConfig.validLimit,
                         shuffle: false,
                         seed: UInt64(datasetConfig.seed &+ 1)
                     )
-                    LoggingHub.emit(process: "cli.main", level: .info, message: "Loaded LogiQA valid samples: \(validSamples.count)")
+                    LoggingHub.emit(
+                        process: "cli.main",
+                        level: .info,
+                        message: "Loaded valid samples: \(validSamples.count) from \(validPaths.count) file(s)"
+                    )
                 }
             } catch {
                 Diagnostics.fail("Failed to load dataset: \(error.localizedDescription)", processID: processID)
@@ -550,5 +570,39 @@ struct EnergeticCLI {
     private static func truncateIfNeeded(_ data: Data, maxBytes: Int) -> Data {
         guard data.count > maxBytes else { return data }
         return Data(data.prefix(maxBytes))
+    }
+
+    private static func resolveDatasetPaths(
+        explicitPath: String?,
+        fallbackPath: String,
+        autoScan: Bool,
+        fileName: String
+    ) -> [String] {
+        if let explicitPath, !explicitPath.isEmpty {
+            return [explicitPath]
+        }
+        if !fallbackPath.isEmpty {
+            return [fallbackPath]
+        }
+        guard autoScan else { return [] }
+        return discoverPreparedDatasets(root: "Artifacts/Datasets", fileName: fileName)
+    }
+
+    private static func discoverPreparedDatasets(root: String, fileName: String) -> [String] {
+        let rootURL = URL(fileURLWithPath: root)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: rootURL.path) else { return [] }
+        guard let enumerator = fm.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+        var paths: [String] = []
+        for case let url as URL in enumerator {
+            if url.lastPathComponent == fileName {
+                paths.append(url.path)
+            }
+        }
+        return paths.sorted()
     }
 }

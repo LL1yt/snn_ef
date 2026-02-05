@@ -169,6 +169,7 @@ router:
         valid_limit: 64
         shuffle: true
         seed: 42
+        auto_scan: false          # если true и local_path пуст, сканировать Artifacts/Datasets/**/prepared_*.jsonl
       negative:
         enabled: true
         weight: 0.2
@@ -210,7 +211,7 @@ Constraints:
 - `dynamics.spike_kick ≥ 0`, `dynamics.gain_spike_kick_scale ≥ 0`, `dynamics.max_speed > 0`, `energy_alpha ∈ (0,1]`, `energy_floor ≥ 0`, `energy_spike_gain ≥ 0`, `energy_gain_bias ≥ 0`, `energy_cap ≥ 0`.
 - `projection.shape == circle`, `projection.bins == energy_constraints.energy_base == capsule.base`.
 - `projection.final_weight_power > 0`.
-- `learning.dataset.local_path` required when dataset enabled.
+- `learning.dataset.local_path` required when dataset enabled, unless `learning.dataset.auto_scan == true`.
 - `learning.dataset.valid_path` optional.
 - `learning.negative.weight ≥ 0`, `learning.negative.margin ≥ 0`.
 - `learning.gain_error_power ≥ 0`, `learning.gain_error_scale ≥ 0`.

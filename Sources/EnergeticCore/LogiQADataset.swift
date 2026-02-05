@@ -35,6 +35,26 @@ public enum LogiQADatasetLoader {
         return items
     }
 
+    public static func loadJSONL(from paths: [String], limit: Int = 0, shuffle: Bool = false, seed: UInt64 = 42) throws -> [LogiQASample] {
+        var items: [LogiQASample] = []
+        items.reserveCapacity(256)
+        for path in paths {
+            let chunk = try loadJSONL(from: path, limit: 0, shuffle: false, seed: seed)
+            items.append(contentsOf: chunk)
+        }
+        if shuffle {
+            var rng = LCG(seed: seed)
+            for i in stride(from: items.count - 1, through: 1, by: -1) {
+                let j = rng.nextInt(upperBound: i + 1)
+                if i != j { items.swapAt(i, j) }
+            }
+        }
+        if limit > 0 && items.count > limit {
+            items = Array(items.prefix(limit))
+        }
+        return items
+    }
+
     private struct LCG {
         private var state: UInt64
         init(seed: UInt64) { self.state = seed == 0 ? 0x9E3779B97F4A7C15 : seed }

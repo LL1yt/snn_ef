@@ -146,8 +146,8 @@ enum Validation {
         if learning.logEveryUI < 1 {
             throw ConfigError.invalidLearningParameter("log_every_ui must be ≥ 1 (got \(learning.logEveryUI))")
         }
-        if learning.dataset.localPath.isEmpty {
-            throw ConfigError.invalidLearningParameter("dataset.local_path must be non-empty")
+        if learning.dataset.localPath.isEmpty && !learning.dataset.autoScan {
+            throw ConfigError.invalidLearningParameter("dataset.local_path must be non-empty unless dataset.auto_scan is true")
         }
         if learning.dataset.trainLimit < 0 || learning.dataset.validLimit < 0 {
             throw ConfigError.invalidLearningParameter("dataset limits must be ≥ 0")
@@ -643,6 +643,7 @@ public struct ConfigRoot: Decodable {
                     public let validLimit: Int
                     public let shuffle: Bool
                     public let seed: Int
+                    public let autoScan: Bool
 
                     enum CodingKeys: String, CodingKey {
                         case name
@@ -653,6 +654,20 @@ public struct ConfigRoot: Decodable {
                         case validLimit = "valid_limit"
                         case shuffle
                         case seed
+                        case autoScan = "auto_scan"
+                    }
+
+                    public init(from decoder: Decoder) throws {
+                        let container = try decoder.container(keyedBy: CodingKeys.self)
+                        name = try container.decode(String.self, forKey: .name)
+                        localPath = try container.decodeIfPresent(String.self, forKey: .localPath) ?? ""
+                        validPath = try container.decodeIfPresent(String.self, forKey: .validPath)
+                        cacheMode = try container.decode(String.self, forKey: .cacheMode)
+                        trainLimit = try container.decode(Int.self, forKey: .trainLimit)
+                        validLimit = try container.decode(Int.self, forKey: .validLimit)
+                        shuffle = try container.decode(Bool.self, forKey: .shuffle)
+                        seed = try container.decode(Int.self, forKey: .seed)
+                        autoScan = try container.decodeIfPresent(Bool.self, forKey: .autoScan) ?? false
                     }
                 }
 

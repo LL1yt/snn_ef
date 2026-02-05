@@ -24,6 +24,9 @@ struct Options {
     var validLimit: Int = 0
     var shuffle: Bool = true
     var seed: UInt64 = 42
+    var dataset: String = "auto"
+    var ethicsSubsets: String = "commonsense,deontology,justice,virtue"
+    var ethicsLabelMode: String = "label"
 }
 
 let urls: [String: String] = [
@@ -63,6 +66,12 @@ func parseArgs() -> Options {
             opts.shuffle = false
         case "--seed":
             if i + 1 < args.count { opts.seed = UInt64(args[i + 1]) ?? 42; i += 1 }
+        case "--dataset":
+            if i + 1 < args.count { opts.dataset = args[i + 1]; i += 1 }
+        case "--ethics-subsets":
+            if i + 1 < args.count { opts.ethicsSubsets = args[i + 1]; i += 1 }
+        case "--ethics-label-mode":
+            if i + 1 < args.count { opts.ethicsLabelMode = args[i + 1]; i += 1 }
         default:
             break
         }
@@ -75,6 +84,14 @@ func readLines(from url: URL) throws -> [String] {
     let data = try Data(contentsOf: url)
     guard let text = String(data: data, encoding: .utf8) else { return [] }
     return text.split(separator: "\n").map { String($0) }
+}
+
+func isDirectory(_ url: URL) -> Bool {
+    var isDir: ObjCBool = false
+    if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+        return isDir.boolValue
+    }
+    return false
 }
 
 func downloadIfMissing(_ urlString: String, to destURL: URL) {
@@ -93,6 +110,186 @@ func downloadIfMissing(_ urlString: String, to destURL: URL) {
     }
     task.resume()
     sema.wait()
+}
+
+let ethicsPrefixes: [String: String] = [
+    "commonsense": "cm",
+    "deontology": "deontology",
+    "justice": "justice",
+    "virtue": "virtue",
+    "utilitarianism": "util"
+]
+
+let ethicsSupportedSubsets: Set<String> = ["commonsense", "deontology", "justice", "virtue"]
+
+func parseCSV(_ text: String) -> [[String]] {
+    var rows: [[String]] = []
+    var row: [String] = []
+    var field = ""
+    var inQuotes = false
+    var i = text.startIndex
+    while i < text.endIndex {
+        let ch = text[i]
+        if inQuotes {
+            if ch == "\"" {
+                let next = text.index(after: i)
+                if next < text.endIndex, text[next] == "\"" {
+                    field.append("\"")
+                    i = next
+                } else {
+                    inQuotes = false
+                }
+            } else {
+                field.append(ch)
+            }
+        } else {
+            if ch == "\"" {
+                inQuotes = true
+            } else if ch == "," {
+                row.append(field)
+                field = ""
+            } else if ch == "\n" || ch == "\r" {
+                if ch == "\r" {
+                    let next = text.index(after: i)
+                    if next < text.endIndex, text[next] == "\n" {
+                        i = next
+                    }
+                }
+                row.append(field)
+                field = ""
+                if !(row.count == 1 && row[0].isEmpty) {
+                    rows.append(row)
+                }
+                row = []
+            } else {
+                field.append(ch)
+            }
+        }
+        i = text.index(after: i)
+    }
+    if !field.isEmpty || !row.isEmpty {
+        row.append(field)
+        rows.append(row)
+    }
+    return rows
+}
+
+func loadCSVRecords(from url: URL) -> [[String: String]] {
+    guard let data = try? Data(contentsOf: url),
+          let text = String(data: data, encoding: .utf8)
+    else { return [] }
+    let rows = parseCSV(text)
+    guard let header = rows.first, !header.isEmpty else { return [] }
+    var records: [[String: String]] = []
+    records.reserveCapacity(rows.count > 1 ? rows.count - 1 : 0)
+    for row in rows.dropFirst() {
+        var record: [String: String] = [:]
+        record.reserveCapacity(header.count)
+        for (idx, key) in header.enumerated() {
+            record[key] = idx < row.count ? row[idx] : ""
+        }
+        records.append(record)
+    }
+    return records
+}
+
+func labelText(_ label: Int, mode: String) -> String? {
+    guard label == 0 || label == 1 else { return nil }
+    switch mode.lowercased() {
+    case "label":
+        return "LABEL_\(label)"
+    case "yesno":
+        return label == 1 ? "YES" : "NO"
+    default:
+        return nil
+    }
+}
+
+func resolveEthicsRoot(inputURL: URL) -> URL {
+    if isDirectory(inputURL.appendingPathComponent("commonsense")) {
+        return inputURL
+    }
+    let nested = inputURL.appendingPathComponent("ethics")
+    if isDirectory(nested.appendingPathComponent("commonsense")) {
+        return nested
+    }
+    return inputURL
+}
+
+func makeEthicsPrepared(
+    subset: String,
+    split: String,
+    records: [[String: String]],
+    labelMode: String
+) -> [Prepared] {
+    var out: [Prepared] = []
+    out.reserveCapacity(records.count)
+    for (idx, record) in records.enumerated() {
+        guard let labelRaw = record["label"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let label = Int(labelRaw),
+              let answer = labelText(label, mode: labelMode),
+              let wrong = labelText(1 - label, mode: labelMode)
+        else { continue }
+
+        let inputText: String
+        switch subset {
+        case "commonsense":
+            inputText = record["input", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+        case "deontology":
+            let scenario = record["scenario", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            let excuse = record["excuse", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            inputText = excuse.isEmpty ? scenario : "\(scenario)\nExcuse: \(excuse)"
+        case "justice":
+            inputText = record["scenario", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+        case "virtue":
+            let raw = record["scenario", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            if let range = raw.range(of: " [SEP] ") {
+                let scenario = raw[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+                let trait = raw[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+                inputText = trait.isEmpty ? String(scenario) : "\(scenario)\nTrait: \(trait)"
+            } else {
+                inputText = raw
+            }
+        default:
+            inputText = ""
+        }
+
+        if inputText.isEmpty { continue }
+        out.append(
+            Prepared(
+                id: "\(subset)-\(split)-\(idx)",
+                split: split,
+                input_text: inputText,
+                answer_text: answer,
+                wrong_answers: [wrong]
+            )
+        )
+    }
+    return out
+}
+
+func loadEthicsSplit(rootURL: URL, subset: String, split: String) -> [[String: String]] {
+    guard let prefix = ethicsPrefixes[subset] else { return [] }
+    let name: String
+    switch split {
+    case "train": name = "\(prefix)_train.csv"
+    case "valid": name = "\(prefix)_test.csv"
+    default: name = "\(prefix)_test.csv"
+    }
+    let url = rootURL.appendingPathComponent(subset).appendingPathComponent(name)
+    if !FileManager.default.fileExists(atPath: url.path) { return [] }
+    return loadCSVRecords(from: url)
+}
+
+func detectDatasetKind(inputURL: URL, requested: String) -> String {
+    let req = requested.lowercased()
+    if req == "ethics" || req == "logiqa" { return req }
+    if isDirectory(inputURL) {
+        if isDirectory(inputURL.appendingPathComponent("commonsense")) { return "ethics" }
+        let nested = inputURL.appendingPathComponent("ethics")
+        if isDirectory(nested.appendingPathComponent("commonsense")) { return "ethics" }
+    }
+    return "logiqa"
 }
 
 func decodeRecords(lines: [String]) -> [Record] {
@@ -207,13 +404,84 @@ func writeJSONL(_ items: [Prepared], to url: URL) throws {
 
 let opts = parseArgs()
 if opts.inputPath.isEmpty || opts.outputDir.isEmpty {
-    print("Usage: logiqa_prepare.swift --input <file|dir> --output <dir> [--train-limit N] [--valid-limit N] [--no-shuffle] [--seed S]")
+    print("Usage: logiqa_prepare.swift --input <file|dir> --output <dir> [--dataset logiqa|ethics] [--train-limit N] [--valid-limit N] [--no-shuffle] [--seed S] [--ethics-subsets LIST] [--ethics-label-mode label|yesno]")
     exit(1)
 }
 
 let inputURL = URL(fileURLWithPath: opts.inputPath)
 let outDirURL = URL(fileURLWithPath: opts.outputDir)
 try? FileManager.default.createDirectory(at: outDirURL, withIntermediateDirectories: true)
+
+let datasetKind = detectDatasetKind(inputURL: inputURL, requested: opts.dataset)
+if datasetKind == "ethics" {
+    let rootURL = resolveEthicsRoot(inputURL: inputURL)
+    if labelText(0, mode: opts.ethicsLabelMode) == nil {
+        print("Invalid ETHICS label mode: \(opts.ethicsLabelMode). Use label or yesno.")
+        exit(2)
+    }
+    let subsetList = opts.ethicsSubsets
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        .filter { !$0.isEmpty }
+    if subsetList.isEmpty {
+        print("No ETHICS subsets provided. Use --ethics-subsets commonsense,deontology,justice,virtue")
+        exit(2)
+    }
+    for subset in subsetList {
+        if subset == "utilitarianism" {
+            print("ETHICS utilitarianism has no labels in raw form. Exclude it or preprocess separately.")
+            exit(2)
+        }
+        if !ethicsSupportedSubsets.contains(subset) {
+            print("Unsupported ETHICS subset: \(subset)")
+            exit(2)
+        }
+    }
+
+    var trainAll: [Prepared] = []
+    var validAll: [Prepared] = []
+    var subsetIndex: UInt64 = 0
+    for subset in subsetList {
+        let trainRecords = loadEthicsSplit(rootURL: rootURL, subset: subset, split: "train")
+        let validRecords = loadEthicsSplit(rootURL: rootURL, subset: subset, split: "valid")
+        var trainPrepared = makeEthicsPrepared(subset: subset, split: "train", records: trainRecords, labelMode: opts.ethicsLabelMode)
+        var validPrepared = makeEthicsPrepared(subset: subset, split: "valid", records: validRecords, labelMode: opts.ethicsLabelMode)
+
+        if opts.shuffle {
+            shuffleInPlace(&trainPrepared, seed: opts.seed &+ (subsetIndex &* 0x9E3779B97F4A7C15))
+            shuffleInPlace(&validPrepared, seed: (opts.seed &+ 1) &+ (subsetIndex &* 0xBF58476D1CE4E5B9))
+        }
+        if opts.trainLimit > 0 && trainPrepared.count > opts.trainLimit {
+            trainPrepared = Array(trainPrepared.prefix(opts.trainLimit))
+        }
+        if opts.validLimit > 0 && validPrepared.count > opts.validLimit {
+            validPrepared = Array(validPrepared.prefix(opts.validLimit))
+        }
+
+        trainAll.append(contentsOf: trainPrepared)
+        validAll.append(contentsOf: validPrepared)
+        subsetIndex += 1
+    }
+
+    if trainAll.isEmpty && validAll.isEmpty {
+        print("No ETHICS records found. Check input path: \(rootURL.path)")
+        exit(2)
+    }
+
+    if opts.shuffle {
+        shuffleInPlace(&trainAll, seed: opts.seed)
+        shuffleInPlace(&validAll, seed: opts.seed &+ 1)
+    }
+
+    let trainOut = outDirURL.appendingPathComponent("prepared_train.jsonl")
+    let validOut = outDirURL.appendingPathComponent("prepared_valid.jsonl")
+    try writeJSONL(trainAll, to: trainOut)
+    try writeJSONL(validAll, to: validOut)
+
+    print("Prepared ETHICS train: \(trainAll.count) -> \(trainOut.path)")
+    print("Prepared ETHICS valid: \(validAll.count) -> \(validOut.path)")
+    exit(0)
+}
 
 func loadSplit(_ name: String) -> [Record] {
     let jsonURL = inputURL.appendingPathComponent("\(name).jsonl")
@@ -242,7 +510,7 @@ func loadSplit(_ name: String) -> [Record] {
     return []
 }
 
-if inputURL.hasDirectoryPath {
+if isDirectory(inputURL) || !FileManager.default.fileExists(atPath: inputURL.path) {
     if !FileManager.default.fileExists(atPath: inputURL.path) {
         try? FileManager.default.createDirectory(at: inputURL, withIntermediateDirectories: true)
     }
