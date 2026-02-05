@@ -105,9 +105,9 @@ router:
         weight: 0.2
         margin: 0.5
       lr:
-        gain: 0.001
-        lif: 0.01
-        dynamics: 0.005
+        gain: 0.0002
+        lif: 0.02
+        dynamics: 0.003
       weights:
         spike: 0.0
         boundary: 0.05
@@ -115,10 +115,10 @@ router:
         theta: [0.5, 1.0]
         radial_bias: [0.0, 0.5]
         spike_kick: [0.0, 1.0]
-        gain: [0.1, 2.0]
+        gain: [0.01, 8.0]
       aggregator:
         sigma_r: 2.5
-        sigma_e: 10.0
+        sigma_e: 120.0
         alpha: 1.0
         beta: 1.0
         gamma: 0.5

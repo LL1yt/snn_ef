@@ -254,12 +254,16 @@ public final class FlowLearningLoop {
             bins: flowConfig.bins,
             gains: params.gains
         )
+        // Normalize for loss computation (keep raw for UI/metrics)
+        let yHatNorm = normalizeBins(yHat)
+        let targetNorm = normalizeBins(targets)
 
         // Compute losses
-        let binLoss = LossFunctions.binLoss(yHat: yHat, target: targets, gains: params.gains)
+        let binLoss = LossFunctions.binLoss(yHat: yHatNorm, target: targetNorm, gains: params.gains)
         let negativeLoss: Float
         if learningConfig.negative.enabled, !wrongTargets.isEmpty {
-            let base = LossFunctions.negativeMarginLoss(yHat: yHat, wrongTargets: wrongTargets, margin: learningConfig.negative.margin)
+            let wrongNorm = wrongTargets.map { normalizeBins($0) }
+            let base = LossFunctions.negativeMarginLoss(yHat: yHatNorm, wrongTargets: wrongNorm, margin: learningConfig.negative.margin)
             negativeLoss = base * learningConfig.negative.weight
         } else {
             negativeLoss = 0
@@ -302,8 +306,8 @@ public final class FlowLearningLoop {
             // Update parameters
             ParameterUpdater.updateGains(
                 gains: &params.gains,
-                yHat: yHat,
-                target: targets,
+                yHat: yHatNorm,
+                target: targetNorm,
                 learningRate: learningConfig.learningRates.gain,
                 bounds: learningConfig.bounds.gain
             )
@@ -453,6 +457,19 @@ public final class FlowLearningLoop {
         return LearningMetrics.BinStatistics(mean: mean, variance: variance, min: min, max: max)
     }
 
+#if canImport(SharedInfrastructure)
+    private func normalizeBins(_ bins: [Float]) -> [Float] {
+        let sum = bins.reduce(0, +)
+        guard sum > 0 else { return bins }
+        return bins.map { $0 / sum }
+    }
+#else
+    private func normalizeBins(_ bins: [Float]) -> [Float] {
+        let sum = bins.reduce(0, +)
+        guard sum > 0 else { return bins }
+        return bins.map { $0 / sum }
+    }
+#endif
 #if canImport(SharedInfrastructure)
     private static let learningLogPrefix = "learning.metrics "
 
