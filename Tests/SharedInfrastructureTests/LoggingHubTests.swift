@@ -208,7 +208,14 @@ final class LoggingHubTests: XCTestCase {
             paths: paths,
             capsule: capsule,
             router: router,
-            ui: ui
+            ui: ui,
+            histogramLanguage: .init(
+                enabled: false,
+                normalizeInput: true,
+                normalizeOutput: true,
+                metrics: ["l1", "cosine"],
+                retrieval: .init(enabled: false, topK: 1, corpusPath: "Artifacts/Corpora/histogram_corpus.jsonl")
+            )
         )
 
         let sourceURL = tempDir.appendingPathComponent("config.yaml")

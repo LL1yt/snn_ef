@@ -190,6 +190,15 @@ final class SharedInfrastructureTests: XCTestCase {
       show_graph: true
       pipeline_snapshot_path: "Artifacts/pipeline_snapshot.json"
       metrics_poll_ms: 200
+    histogram_language:
+      enabled: false
+      normalize_input: true
+      normalize_output: true
+      metrics: ["l1", "cosine"]
+      retrieval:
+        enabled: false
+        top_k: 1
+        corpus_path: "Artifacts/Corpora/histogram_corpus.jsonl"
     """
 
     private static let invalidEnergyConfig: String = {

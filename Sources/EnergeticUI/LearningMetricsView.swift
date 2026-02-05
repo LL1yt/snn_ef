@@ -13,6 +13,8 @@ public struct LearningMetricsView: View {
     @State private var angleBoost: Double = 2.6
     @State private var maxLabelCount: Int = 4
     @State private var labelMode: LabelMode = .key
+    @State private var showInputOverlay: Bool = false
+    @State private var showProjectedOverlay: Bool = false
     private let capsuleConfig: ConfigRoot.Capsule?
 
     public init(logFileURL: URL?, title: String = "Learning metrics", pollInterval: TimeInterval = 0.5, maxRecords: Int = 200, capsuleConfig: ConfigRoot.Capsule? = nil) {
@@ -106,7 +108,7 @@ public struct LearningMetricsView: View {
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
             histogramPanel
-            histogramMatchChart
+            histogramMetricCharts
             lossCharts
             rateCharts
         }
@@ -178,34 +180,73 @@ public struct LearningMetricsView: View {
 
     @ViewBuilder
     private var histogramPanel: some View {
-        if let latest = currentRecord, let histogram = latest.histogram {
-            let (yHat, target) = downsampleHistogram(yHat: histogram.yHat, target: histogram.target, maxBins: 128)
+        if let latest = currentRecord {
+            let outputRaw = latest.outputHistogram ?? latest.histogram?.yHat
+            let targetRaw = latest.targetHistogram ?? latest.histogram?.target
+            let inputRaw = latest.inputHistogram
+            let projectedRaw = latest.projectedHistogram
+
+            guard let outputRaw else {
+                Text("Histogram not available in log payload.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                return
+            }
+
+            let series = downsampleHistogramSeries(
+                output: outputRaw,
+                target: targetRaw,
+                input: inputRaw,
+                projected: projectedRaw,
+                maxBins: 128
+            )
             VStack(alignment: .leading, spacing: 8) {
                 Text("Histogram (output vs target)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                HistogramComparisonView(yHat: yHat, target: target)
+                HistogramComparisonView(
+                    output: series.output,
+                    target: series.target,
+                    input: showInputOverlay ? series.input : nil,
+                    projected: showProjectedOverlay ? series.projected : nil
+                )
                     .frame(height: 180)
-                histogramSignatureView(yHat: histogram.yHat, target: histogram.target)
+                histogramOverlayLegend(
+                    hasTarget: series.target != nil,
+                    hasInput: series.input != nil,
+                    hasProjected: series.projected != nil
+                )
+                histogramSignatureView(output: outputRaw, target: targetRaw)
                 predictionPanel(record: latest)
+                histogramOverlayToggles(
+                    hasInput: series.input != nil,
+                    hasProjected: series.projected != nil
+                )
             }
-        } else {
-            Text("Histogram not available in log payload.")
-                .font(.footnote)
-                .foregroundColor(.secondary)
         }
     }
 
     @ViewBuilder
-    private var histogramMatchChart: some View {
-        let values = viewModel.records.compactMap { $0.histogramMatchL1 }.map { Double($0) }
-        if !values.isEmpty {
+    private var histogramMetricCharts: some View {
+        let l1 = viewModel.records.compactMap { $0.histogramMatchL1 }.map { Double($0) }
+        let l2 = viewModel.records.compactMap { $0.histogramMatchL2 }.map { Double($0) }
+        let cosine = viewModel.records.compactMap { $0.histogramMatchCosine }.map { Double($0) }
+
+        if !l1.isEmpty || !l2.isEmpty || !cosine.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Histogram match (L1)")
+                Text("Histogram metrics (normalized)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                MetricLineChart(title: "L1 (norm)", values: values, color: .mint, trendHint: trendHint(for: "HistL1", values: values))
-                Text("↓ better: L1 distance between normalized yHat and target")
+                if !l1.isEmpty {
+                    MetricLineChart(title: "L1", values: l1, color: .mint, trendHint: trendHint(for: "HistL1", values: l1))
+                }
+                if !l2.isEmpty {
+                    MetricLineChart(title: "L2", values: l2, color: .cyan, trendHint: trendHint(for: "HistL2", values: l2))
+                }
+                if !cosine.isEmpty {
+                    MetricLineChart(title: "Cosine", values: cosine, color: .indigo, trendHint: trendHint(for: "HistCosine", values: cosine))
+                }
+                Text("↓ better: L1/L2 | ↑ better: Cosine")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -213,14 +254,14 @@ public struct LearningMetricsView: View {
     }
 
     @ViewBuilder
-    private func histogramSignatureView(yHat: [Float], target: [Float]?) -> some View {
-        let top = topBinsSignature(values: yHat, maxCount: 6)
+    private func histogramSignatureView(output: [Float], target: [Float]?) -> some View {
+        let top = topBinsSignature(values: output, maxCount: 6)
         let targetTop = target.map { topBinsSignature(values: $0, maxCount: 6) }
         VStack(alignment: .leading, spacing: 4) {
             Text("Signature (top bins)")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            Text("yHat: \(top)")
+            Text("output: \(top)")
                 .font(.caption2.monospacedDigit())
                 .foregroundColor(.secondary)
             if let targetTop {
@@ -424,8 +465,10 @@ public struct LearningMetricsView: View {
         switch kind {
         case "Completion", "Acc":
             return trend > 0 ? "↑ better" : "↓ worse"
-        case "RadialMiss", "Total", "Bins", "Negative", "Spike", "Boundary", "HistL1":
+        case "RadialMiss", "Total", "Bins", "Negative", "Spike", "Boundary", "HistL1", "HistL2":
             return trend < 0 ? "↓ better" : "↑ worse"
+        case "HistCosine":
+            return trend > 0 ? "↑ better" : "↓ worse"
         case "SpikeRate":
             return "≈ target"
         default:
@@ -433,22 +476,70 @@ public struct LearningMetricsView: View {
         }
     }
 
-    private func downsampleHistogram(yHat: [Float], target: [Float]?, maxBins: Int) -> ([Float], [Float]?) {
-        guard yHat.count > maxBins else { return (yHat, target) }
-        let factor = max(1, yHat.count / maxBins)
-        var yOut: [Float] = []
-        var tOut: [Float]? = target != nil ? [] : nil
-        for i in stride(from: 0, to: yHat.count, by: factor) {
-            let slice = yHat[i..<min(i + factor, yHat.count)]
-            let avg = slice.reduce(0, +) / Float(slice.count)
-            yOut.append(avg)
-            if let target {
-                let tslice = target[i..<min(i + factor, target.count)]
-                let tavg = tslice.reduce(0, +) / Float(tslice.count)
-                tOut?.append(tavg)
+    private struct HistogramSeries {
+        let output: [Float]
+        let target: [Float]?
+        let input: [Float]?
+        let projected: [Float]?
+    }
+
+    private func downsampleHistogramSeries(
+        output: [Float],
+        target: [Float]?,
+        input: [Float]?,
+        projected: [Float]?,
+        maxBins: Int
+    ) -> HistogramSeries {
+        let maxCount = max(output.count, target?.count ?? 0, input?.count ?? 0, projected?.count ?? 0)
+        guard maxCount > maxBins else {
+            return HistogramSeries(output: output, target: target, input: input, projected: projected)
+        }
+        let factor = max(1, maxCount / maxBins)
+        func downsample(_ values: [Float]?) -> [Float]? {
+            guard let values else { return nil }
+            var out: [Float] = []
+            out.reserveCapacity(max(1, values.count / factor))
+            for i in stride(from: 0, to: values.count, by: factor) {
+                let slice = values[i..<min(i + factor, values.count)]
+                let avg = slice.reduce(0, +) / Float(slice.count)
+                out.append(avg)
+            }
+            return out
+        }
+        return HistogramSeries(
+            output: downsample(output) ?? output,
+            target: downsample(target),
+            input: downsample(input),
+            projected: downsample(projected)
+        )
+    }
+
+    @ViewBuilder
+    private func histogramOverlayLegend(hasTarget: Bool, hasInput: Bool, hasProjected: Bool) -> some View {
+        HStack(spacing: 8) {
+            LegendSwatch(color: .green, label: "Output")
+            if hasTarget { LegendSwatch(color: .blue, label: "Target") }
+            if hasInput { LegendSwatch(color: .orange, label: "Input") }
+            if hasProjected { LegendSwatch(color: .purple, label: "Projected") }
+        }
+        .font(.caption2)
+        .foregroundColor(.secondary)
+    }
+
+    @ViewBuilder
+    private func histogramOverlayToggles(hasInput: Bool, hasProjected: Bool) -> some View {
+        HStack(spacing: 12) {
+            if hasInput {
+                Toggle("Input overlay", isOn: $showInputOverlay)
+                    .toggleStyle(.switch)
+            }
+            if hasProjected {
+                Toggle("Projected overlay", isOn: $showProjectedOverlay)
+                    .toggleStyle(.switch)
             }
         }
-        return (yOut, tOut)
+        .font(.caption2)
+        .foregroundColor(.secondary)
     }
 
     private func topBinsSignature(values: [Float], maxCount: Int) -> String {
@@ -783,17 +874,25 @@ struct LineChart: View {
 }
 
 struct HistogramComparisonView: View {
-    let yHat: [Float]
+    let output: [Float]
     let target: [Float]?
+    let input: [Float]?
+    let projected: [Float]?
 
     var body: some View {
         GeometryReader { geo in
             Canvas { ctx, size in
                 let w = size.width
                 let h = size.height
-                let count = max(yHat.count, 1)
+                let count = max(output.count, 1)
                 let barW = w / CGFloat(count)
-                let maxY = max(yHat.max() ?? 0, target?.max() ?? 0, 1e-9)
+                let maxY = max(
+                    output.max() ?? 0,
+                    target?.max() ?? 0,
+                    input?.max() ?? 0,
+                    projected?.max() ?? 0,
+                    1e-9
+                )
 
                 for i in 0..<count {
                     let x = CGFloat(i) * barW
@@ -801,16 +900,46 @@ struct HistogramComparisonView: View {
                         let tVal = CGFloat(target[i]) / CGFloat(maxY)
                         let tHeight = h * tVal
                         let tRect = CGRect(x: x, y: h - tHeight, width: max(barW - 1, 1), height: tHeight)
-                        ctx.fill(Path(tRect), with: .color(.blue.opacity(0.55)))
+                        ctx.fill(Path(tRect), with: .color(.blue.opacity(0.45)))
                     }
 
-                    let yVal = CGFloat(yHat[i]) / CGFloat(maxY)
-                    let yHeight = h * yVal
-                    let rect = CGRect(x: x, y: h - yHeight, width: max(barW - 1, 1), height: yHeight)
-                    ctx.fill(Path(rect), with: .color(.green.opacity(0.35)))
-                    ctx.stroke(Path(rect), with: .color(.green.opacity(0.7)), lineWidth: 0.6)
+                    if let input, i < input.count {
+                        let iVal = CGFloat(input[i]) / CGFloat(maxY)
+                        let iHeight = h * iVal
+                        let iRect = CGRect(x: x, y: h - iHeight, width: max(barW - 1, 1), height: iHeight)
+                        ctx.stroke(Path(iRect), with: .color(.orange.opacity(0.8)), lineWidth: 0.6)
+                    }
+
+                    if let projected, i < projected.count {
+                        let pVal = CGFloat(projected[i]) / CGFloat(maxY)
+                        let pHeight = h * pVal
+                        let pRect = CGRect(x: x, y: h - pHeight, width: max(barW - 1, 1), height: pHeight)
+                        ctx.stroke(Path(pRect), with: .color(.purple.opacity(0.8)), lineWidth: 0.6)
+                    }
+
+                    if i < output.count {
+                        let yVal = CGFloat(output[i]) / CGFloat(maxY)
+                        let yHeight = h * yVal
+                        let rect = CGRect(x: x, y: h - yHeight, width: max(barW - 1, 1), height: yHeight)
+                        ctx.fill(Path(rect), with: .color(.green.opacity(0.35)))
+                        ctx.stroke(Path(rect), with: .color(.green.opacity(0.7)), lineWidth: 0.6)
+                    }
                 }
             }
+        }
+    }
+}
+
+struct LegendSwatch: View {
+    let color: Color
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(label)
         }
     }
 }

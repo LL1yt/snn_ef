@@ -15,7 +15,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
         let router = FlowRouter(cfg: flowCfg, seed: 123)
 
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let seeds = FlowSeeds.makeSeeds(energies: energies, layout: flowCfg.seedLayout, radius: flowCfg.seedRadius, bins: flowCfg.bins)
 
         var initialBins: [Int32] = []
@@ -88,7 +88,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
         let router = FlowRouter(cfg: flowCfg, seed: 123)
 
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
         let seeds = FlowSeeds.makeSeeds(energies: energies, layout: flowCfg.seedLayout, radius: flowCfg.seedRadius, bins: flowCfg.bins)
 
@@ -138,7 +138,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
         let router = FlowRouter(cfg: flowCfg, seed: 123)
 
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
         let seeds = FlowSeeds.makeSeeds(energies: energies, layout: flowCfg.seedLayout, radius: flowCfg.seedRadius, bins: flowCfg.bins)
 
@@ -235,7 +235,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
         let router = FlowRouter(cfg: flowCfg, seed: 123)
 
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
         let targetNorm = normalize(targets)
 
@@ -353,7 +353,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
         let router = FlowRouter(cfg: flowCfg, seed: 123)
 
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
         let targetNorm = normalize(targets)
 
@@ -489,7 +489,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
         let router = FlowRouter(cfg: flowCfg, seed: 123)
 
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
         let targetNorm = normalize(targets)
 
@@ -586,7 +586,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             )
         )
 
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
 
         let seed: UInt64 = 4242
@@ -648,7 +648,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         let learningLoop = FlowLearningLoop(flowConfig: flowCfg, learningConfig: learningCfg, seed: 42)
 
         // Create synthetic energies
-        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let energies: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         let targets: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]  // Match energies
 
         // Run a few epochs
@@ -725,7 +725,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
             )
         )
 
-        let energies: [Float] = [5, 10, 7, 12]
+        let energies: [Float] = [1, 2, 3, 4]
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: 4)
 
         // Run twice with same seed
@@ -786,8 +786,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
 
         let learningLoop = FlowLearningLoop(flowConfig: flowCfg, learningConfig: learningCfg, seed: 999)
-        let energies: [Float] = [8, 12, 6, 10]
-        let targets: [Float] = [8, 12, 6, 10]
+        let energies: [Float] = [1, 2, 3, 4]
+        let targets: [Float] = [1, 2, 3, 4]
 
         // Run one epoch
         let metrics = learningLoop.runEpoch(epoch: 0, energies: energies, targets: targets)
@@ -811,7 +811,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
     }
 
     func testTargetLoadingFromCapsuleDigits() {
-        let energies: [Float] = [3.2, 7.8, 15.1, 22.5, 9.3]
+        let energies: [Float] = [3.2, 7.8, 12.1, 15.5, 9.3]
         let bins = 16
 
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: bins)
@@ -864,8 +864,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
 
         let learningLoop = FlowLearningLoop(flowConfig: flowCfg, learningConfig: learningCfg, seed: 777)
-        let energies: [Float] = [10, 15, 12, 18]
-        let targets: [Float] = [10, 15, 12, 18]
+        let energies: [Float] = [1, 2, 3, 4]
+        let targets: [Float] = [1, 2, 3, 4]
 
         let initialThreshold = learningLoop.getParameters().lifThreshold
 
@@ -919,7 +919,7 @@ final class FlowLearningIntegrationTests: XCTestCase {
         )
 
         let learningLoop = FlowLearningLoop(flowConfig: flowCfg, learningConfig: learningCfg, seed: 7)
-        let energies: [Float] = [5, 4, 3, 2]
+        let energies: [Float] = [4, 3, 2, 1]
         let targets: [Float] = [0, 0, 0, 0]
 
         let before = learningLoop.getParameters().gains

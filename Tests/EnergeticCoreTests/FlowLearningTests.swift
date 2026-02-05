@@ -249,18 +249,19 @@ final class FlowLearningTests: XCTestCase {
     // MARK: - Target Loader Tests
 
     func testTargetFromCapsuleDigits() {
-        let energies: [Float] = [1.5, 2.3, 5.7, 10.2, 3.8]
+        let energies: [Float] = [1.5, 2.3, 5.7, 7.2, 3.8]
         let bins = 8
 
         let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: bins)
 
         XCTAssertEqual(targets.count, bins)
-        // bin = floor(E) % bins
-        // E=1.5 -> bin 1, E=2.3 -> bin 2, E=5.7 -> bin 5, E=10.2 -> bin 2 (10%8=2), E=3.8 -> bin 3
-        XCTAssertGreaterThan(targets[1], 0)  // 1.5
-        XCTAssertGreaterThan(targets[2], 0)  // 2.3 + 10.2
-        XCTAssertGreaterThan(targets[3], 0)  // 3.8
-        XCTAssertGreaterThan(targets[5], 0)  // 5.7
+        // bin = floor(E) - 1 (energies are digits + 1)
+        // E=1.5 -> bin 0, E=2.3 -> bin 1, E=5.7 -> bin 4, E=7.2 -> bin 6, E=3.8 -> bin 2
+        XCTAssertGreaterThan(targets[0], 0)  // 1.5
+        XCTAssertGreaterThan(targets[1], 0)  // 2.3
+        XCTAssertGreaterThan(targets[2], 0)  // 3.8
+        XCTAssertGreaterThan(targets[4], 0)  // 5.7
+        XCTAssertGreaterThan(targets[6], 0)  // 7.2
     }
 
     // MARK: - Checkpoint Tests
