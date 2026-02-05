@@ -101,8 +101,8 @@ router:
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
         valid_path: "Artifacts/Datasets/LogiQA/prepared/prepared_valid.jsonl"
         cache_mode: "prepared"
-        train_limit: 256
-        valid_limit: 64
+        train_limit: 0
+        valid_limit: 0
         shuffle: true
         seed: 42
       negative:

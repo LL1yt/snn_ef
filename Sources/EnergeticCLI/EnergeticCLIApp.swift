@@ -15,6 +15,9 @@ struct EnergeticCLI {
             case "learn":
                 runLearn(args: Array(args.dropFirst(2)))
                 return
+            case "precompute-dataset":
+                runPrecomputeDataset(args: Array(args.dropFirst(2)))
+                return
             case "run":
                 // Default run command (existing behavior)
                 break
@@ -202,54 +205,110 @@ struct EnergeticCLI {
         )
 
         let datasetConfig = snapshot.root.router.flow.learning.dataset
+        let cacheMode = datasetConfig.cacheMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let useDataset = datasetPath != nil || !datasetConfig.localPath.isEmpty || datasetConfig.autoScan
 
         var trainSamples: [LogiQASample] = []
         var validSamples: [LogiQASample] = []
+        var precomputedTrain: [PrecomputedDataset.Sample] = []
+        var precomputedValid: [PrecomputedDataset.Sample] = []
         if useDataset {
             do {
-                let trainPaths = resolveDatasetPaths(
-                    explicitPath: datasetPath,
-                    fallbackPath: datasetConfig.localPath,
-                    autoScan: datasetConfig.autoScan,
-                    fileName: "prepared_train.jsonl"
-                )
-                if trainPaths.isEmpty {
-                    Diagnostics.fail(
-                        "No dataset files found. Provide --dataset PATH, set learning.dataset.local_path, or enable learning.dataset.auto_scan with Artifacts/Datasets/*/prepared_train.jsonl present.",
-                        processID: processID
+                if cacheMode == "precomputed" {
+                    let trainPaths = resolveDatasetPaths(
+                        explicitPath: datasetPath,
+                        fallbackPath: datasetConfig.localPath,
+                        autoScan: datasetConfig.autoScan,
+                        fileName: "precomputed_train.jsonl"
                     )
-                }
-                trainSamples = try LogiQADatasetLoader.loadJSONL(
-                    from: trainPaths,
-                    limit: datasetConfig.trainLimit,
-                    shuffle: datasetConfig.shuffle,
-                    seed: UInt64(datasetConfig.seed)
-                )
-                LoggingHub.emit(
-                    process: "cli.main",
-                    level: .info,
-                    message: "Loaded train samples: \(trainSamples.count) from \(trainPaths.count) file(s)"
-                )
+                    if trainPaths.isEmpty {
+                        Diagnostics.fail(
+                            "No precomputed dataset files found. Provide --dataset PATH, set learning.dataset.local_path, or enable learning.dataset.auto_scan with Artifacts/Datasets/*/precomputed_train.jsonl present.",
+                            processID: processID
+                        )
+                    }
+                    precomputedTrain = try PrecomputedDataset.loadJSONL(
+                        paths: trainPaths,
+                        config: snapshot.root.capsule,
+                        bins: flowCfg.bins
+                    )
+                    if datasetConfig.shuffle, precomputedTrain.count > 1 {
+                        shuffleInPlace(&precomputedTrain, seed: UInt64(datasetConfig.seed))
+                    }
+                    if datasetConfig.trainLimit > 0 && precomputedTrain.count > datasetConfig.trainLimit {
+                        precomputedTrain = Array(precomputedTrain.prefix(datasetConfig.trainLimit))
+                    }
+                    LoggingHub.emit(
+                        process: "cli.main",
+                        level: .info,
+                        message: "Loaded precomputed train samples: \(precomputedTrain.count) from \(trainPaths.count) file(s)"
+                    )
 
-                let validPaths = resolveDatasetPaths(
-                    explicitPath: nil,
-                    fallbackPath: datasetConfig.validPath ?? "",
-                    autoScan: datasetConfig.autoScan,
-                    fileName: "prepared_valid.jsonl"
-                )
-                if !validPaths.isEmpty {
-                    validSamples = try LogiQADatasetLoader.loadJSONL(
-                        from: validPaths,
-                        limit: datasetConfig.validLimit,
-                        shuffle: false,
-                        seed: UInt64(datasetConfig.seed &+ 1)
+                    let validPaths = resolveDatasetPaths(
+                        explicitPath: nil,
+                        fallbackPath: datasetConfig.validPath ?? "",
+                        autoScan: datasetConfig.autoScan,
+                        fileName: "precomputed_valid.jsonl"
+                    )
+                    if !validPaths.isEmpty {
+                        precomputedValid = try PrecomputedDataset.loadJSONL(
+                            paths: validPaths,
+                            config: snapshot.root.capsule,
+                            bins: flowCfg.bins
+                        )
+                        if datasetConfig.validLimit > 0 && precomputedValid.count > datasetConfig.validLimit {
+                            precomputedValid = Array(precomputedValid.prefix(datasetConfig.validLimit))
+                        }
+                        LoggingHub.emit(
+                            process: "cli.main",
+                            level: .info,
+                            message: "Loaded precomputed valid samples: \(precomputedValid.count) from \(validPaths.count) file(s)"
+                        )
+                    }
+                } else {
+                    let trainPaths = resolveDatasetPaths(
+                        explicitPath: datasetPath,
+                        fallbackPath: datasetConfig.localPath,
+                        autoScan: datasetConfig.autoScan,
+                        fileName: "prepared_train.jsonl"
+                    )
+                    if trainPaths.isEmpty {
+                        Diagnostics.fail(
+                            "No dataset files found. Provide --dataset PATH, set learning.dataset.local_path, or enable learning.dataset.auto_scan with Artifacts/Datasets/*/prepared_train.jsonl present.",
+                            processID: processID
+                        )
+                    }
+                    trainSamples = try LogiQADatasetLoader.loadJSONL(
+                        from: trainPaths,
+                        limit: datasetConfig.trainLimit,
+                        shuffle: datasetConfig.shuffle,
+                        seed: UInt64(datasetConfig.seed)
                     )
                     LoggingHub.emit(
                         process: "cli.main",
                         level: .info,
-                        message: "Loaded valid samples: \(validSamples.count) from \(validPaths.count) file(s)"
+                        message: "Loaded train samples: \(trainSamples.count) from \(trainPaths.count) file(s)"
                     )
+
+                    let validPaths = resolveDatasetPaths(
+                        explicitPath: nil,
+                        fallbackPath: datasetConfig.validPath ?? "",
+                        autoScan: datasetConfig.autoScan,
+                        fileName: "prepared_valid.jsonl"
+                    )
+                    if !validPaths.isEmpty {
+                        validSamples = try LogiQADatasetLoader.loadJSONL(
+                            from: validPaths,
+                            limit: datasetConfig.validLimit,
+                            shuffle: false,
+                            seed: UInt64(datasetConfig.seed &+ 1)
+                        )
+                        LoggingHub.emit(
+                            process: "cli.main",
+                            level: .info,
+                            message: "Loaded valid samples: \(validSamples.count) from \(validPaths.count) file(s)"
+                        )
+                    }
                 }
             } catch {
                 Diagnostics.fail("Failed to load dataset: \(error.localizedDescription)", processID: processID)
@@ -292,12 +351,12 @@ struct EnergeticCLI {
         }
         var trainCache: [String: EncodedSample] = [:]
         var validCache: [String: EncodedSample] = [:]
-        if !validSamples.isEmpty {
+        if cacheMode != "precomputed", !validSamples.isEmpty {
             validCache = buildCache(samples: validSamples, capsuleConfig: snapshot.root.capsule, bins: flowCfg.bins, processID: processID)
         }
 
         // Reuse a single eval loop to avoid recreating Metal context on each evaluation
-        let evalLoop: FlowLearningLoop? = validSamples.isEmpty
+        let evalLoop: FlowLearningLoop? = (cacheMode == "precomputed" ? precomputedValid.isEmpty : validSamples.isEmpty)
             ? nil
             : FlowLearningLoop(
                 flowConfig: flowCfg,
@@ -311,29 +370,50 @@ struct EnergeticCLI {
         let emitUILogs = snapshot.root.ui.enabled && !snapshot.root.ui.headlessOverride
 
         for epoch in startEpoch..<epochs {
-            let pair = makeTrainingPair(
-                index: epoch,
-                samples: trainSamples,
-                fallbackInput: fallbackInput,
-                fallbackAnswer: fallbackAnswer,
-                capsuleConfig: snapshot.root.capsule,
-                bins: flowCfg.bins,
-                processID: processID,
-                cache: &trainCache
-            )
-            let metrics = learningLoop.runEpoch(
-                epoch: epoch,
-                energies: pair.energies,
-                targets: pair.targets,
-                wrongTargets: pair.wrongTargets,
-                optionTargets: pair.optionTargets,
-                correctIndex: pair.correctIndex,
-                inputText: pair.inputText,
-                answerText: pair.answerText,
-                emitLog: emitUILogs,
-                targetsNormOverride: pair.targetsNorm,
-                wrongTargetsNormOverride: pair.wrongTargetsNorm
-            )
+            let metrics: LearningMetrics
+            if cacheMode == "precomputed" {
+                guard !precomputedTrain.isEmpty else {
+                    Diagnostics.fail("Precomputed dataset is empty. Run energetic-cli precompute-dataset to generate it.", processID: processID)
+                }
+                let sample = precomputedTrain[epoch % precomputedTrain.count]
+                metrics = learningLoop.runEpoch(
+                    epoch: epoch,
+                    energies: sample.energies,
+                    targets: sample.targets,
+                    wrongTargets: sample.wrongTargets,
+                    optionTargets: sample.optionTargets,
+                    correctIndex: sample.correctIndex,
+                    inputText: nil,
+                    answerText: nil,
+                    emitLog: emitUILogs,
+                    targetsNormOverride: sample.targetsNorm,
+                    wrongTargetsNormOverride: sample.wrongTargetsNorm
+                )
+            } else {
+                let pair = makeTrainingPair(
+                    index: epoch,
+                    samples: trainSamples,
+                    fallbackInput: fallbackInput,
+                    fallbackAnswer: fallbackAnswer,
+                    capsuleConfig: snapshot.root.capsule,
+                    bins: flowCfg.bins,
+                    processID: processID,
+                    cache: &trainCache
+                )
+                metrics = learningLoop.runEpoch(
+                    epoch: epoch,
+                    energies: pair.energies,
+                    targets: pair.targets,
+                    wrongTargets: pair.wrongTargets,
+                    optionTargets: pair.optionTargets,
+                    correctIndex: pair.correctIndex,
+                    inputText: pair.inputText,
+                    answerText: pair.answerText,
+                    emitLog: emitUILogs,
+                    targetsNormOverride: pair.targetsNorm,
+                    wrongTargetsNormOverride: pair.wrongTargetsNorm
+                )
+            }
             allMetrics.append(metrics)
 
             if epoch % logEvery == 0 {
@@ -363,20 +443,31 @@ struct EnergeticCLI {
                 }
             }
 
-            if !validSamples.isEmpty && ((epoch + 1) % evalEvery == 0 || epoch == epochs - 1) {
+            if (cacheMode == "precomputed" ? !precomputedValid.isEmpty : !validSamples.isEmpty)
+                && ((epoch + 1) % evalEvery == 0 || epoch == epochs - 1) {
                 guard let evalLoop else {
                     continue
                 }
-                let evalMetrics = evaluateSamples(
-                    epoch: epoch,
-                    samples: validSamples,
-                    evalLoop: evalLoop,
-                    capsuleConfig: snapshot.root.capsule,
-                    bins: flowCfg.bins,
-                    processID: processID,
-                    cache: &validCache,
-                    currentParams: learningLoop.getParameters()
-                )
+                let evalMetrics: LearningMetrics
+                if cacheMode == "precomputed" {
+                    evalMetrics = evaluatePrecomputedSamples(
+                        epoch: epoch,
+                        samples: precomputedValid,
+                        evalLoop: evalLoop,
+                        currentParams: learningLoop.getParameters()
+                    )
+                } else {
+                    evalMetrics = evaluateSamples(
+                        epoch: epoch,
+                        samples: validSamples,
+                        evalLoop: evalLoop,
+                        capsuleConfig: snapshot.root.capsule,
+                        bins: flowCfg.bins,
+                        processID: processID,
+                        cache: &validCache,
+                        currentParams: learningLoop.getParameters()
+                    )
+                }
                 LoggingHub.emit(
                     process: "trainer.eval",
                     level: .info,
@@ -414,12 +505,20 @@ struct EnergeticCLI {
         Commands:
           run       Run flow simulation (default)
           learn     Run learning pipeline
+          precompute-dataset  Precompute dataset into base64 JSONL for fast training
           help      Show this help message
 
         Learn Options:
           --epochs N         Number of training epochs (default: from config)
           --save-every K     Save checkpoint every K epochs (default: 10)
           --dataset PATH     Path to dataset file (optional)
+        Precompute Options:
+          --input PATH       Prepared dataset file or directory
+          --output DIR       Output directory for precomputed files
+          --all              Scan Datasets for *_train.jsonl / *_valid.jsonl and precompute all
+          --update-retrieval Append missing target histograms to histogram_language.retrieval.corpus_path
+          --jobs N           Parallel workers (default: active CPU cores)
+          --resume           Continue existing precomputed file (skip already written ids)
 
         Config (learning):
           log_every          Emit CLI progress logs every N epochs
@@ -432,6 +531,7 @@ struct EnergeticCLI {
           energetic-cli
           energetic-cli run
           energetic-cli learn --epochs 100 --save-every 20
+          energetic-cli precompute-dataset --input Artifacts/Datasets/LogiQA/prepared --output Artifacts/Datasets/LogiQA/precomputed
         """)
     }
 
@@ -655,6 +755,643 @@ struct EnergeticCLI {
         )
     }
 
+    private static func evaluatePrecomputedSamples(
+        epoch: Int,
+        samples: [PrecomputedDataset.Sample],
+        evalLoop: FlowLearningLoop,
+        currentParams: LearnableParameters
+    ) -> LearningMetrics {
+        evalLoop.loadParameters(currentParams)
+
+        var totalLoss: Float = 0
+        var binLoss: Float = 0
+        var negLoss: Float = 0
+        var accSum: Float = 0
+        var accCount: Float = 0
+
+        for sample in samples {
+            let metrics = evalLoop.runEpoch(
+                epoch: epoch,
+                energies: sample.energies,
+                targets: sample.targets,
+                wrongTargets: sample.wrongTargets,
+                optionTargets: sample.optionTargets,
+                correctIndex: sample.correctIndex,
+                inputText: nil,
+                answerText: nil,
+                applyUpdates: false,
+                emitLog: false,
+                targetsNormOverride: sample.targetsNorm,
+                wrongTargetsNormOverride: sample.wrongTargetsNorm
+            )
+            totalLoss += metrics.totalLoss
+            binLoss += metrics.binLoss
+            negLoss += metrics.negativeLoss
+            if let acc = metrics.optionAccuracy {
+                accSum += acc
+                accCount += 1
+            }
+        }
+
+        let count = max(1, samples.count)
+        return LearningMetrics(
+            epoch: epoch,
+            totalLoss: totalLoss / Float(count),
+            binLoss: binLoss / Float(count),
+            negativeLoss: negLoss / Float(count),
+            spikeLoss: 0,
+            boundaryLoss: 0,
+            spikeRate: 0,
+            completionRate: 0,
+            meanRadialMiss: 0,
+            nonzeroBins: 0,
+            yHatStats: .init(mean: 0, variance: 0, min: 0, max: 0),
+            paramDeltas: .init(gainMean: 0, gainVariance: 0, lifThreshold: 0, radialBias: 0, spikeKick: 0),
+            optionAccuracy: accCount > 0 ? accSum / accCount : nil
+        )
+    }
+
+    private struct PrecomputeOptions {
+        var inputPath: String = ""
+        var outputDir: String = ""
+        var trainLimit: Int?
+        var validLimit: Int?
+        var shuffle: Bool?
+        var seed: UInt64?
+        var validPath: String = ""
+        var all: Bool = false
+        var updateRetrieval: Bool = false
+        var jobs: Int?
+        var resume: Bool = false
+    }
+
+    private static func parsePrecomputeArgs(_ args: [String]) -> PrecomputeOptions {
+        var opts = PrecomputeOptions()
+        var i = 0
+        while i < args.count {
+            let arg = args[i]
+            switch arg {
+            case "--input":
+                if i + 1 < args.count { opts.inputPath = args[i + 1]; i += 1 }
+            case "--output":
+                if i + 1 < args.count { opts.outputDir = args[i + 1]; i += 1 }
+            case "--train-limit":
+                if i + 1 < args.count { opts.trainLimit = Int(args[i + 1]); i += 1 }
+            case "--valid-limit":
+                if i + 1 < args.count { opts.validLimit = Int(args[i + 1]); i += 1 }
+            case "--no-shuffle":
+                opts.shuffle = false
+            case "--seed":
+                if i + 1 < args.count { opts.seed = UInt64(args[i + 1]); i += 1 }
+            case "--valid":
+                if i + 1 < args.count { opts.validPath = args[i + 1]; i += 1 }
+            case "--all":
+                opts.all = true
+            case "--update-retrieval":
+                opts.updateRetrieval = true
+            case "--jobs":
+                if i + 1 < args.count { opts.jobs = Int(args[i + 1]); i += 1 }
+            case "--resume":
+                opts.resume = true
+            default:
+                break
+            }
+            i += 1
+        }
+        return opts
+    }
+
+    static func runPrecomputeDataset(args: [String]) {
+        let processID = (try? ProcessRegistry.resolve("cli.main")) ?? "cli.main"
+        let env = ProcessInfo.processInfo.environment
+        let configURL = env["SNN_CONFIG_PATH"].map { URL(fileURLWithPath: $0) }
+
+        let opts = parsePrecomputeArgs(args)
+
+        // Load config
+        let snapshot: ConfigSnapshot
+        do {
+            snapshot = try ConfigCenter.load(url: configURL)
+            ProcessRegistry.configure(from: snapshot)
+            try LoggingHub.configure(from: snapshot)
+        } catch {
+            Diagnostics.fail("Failed to load config: \(error.localizedDescription)", processID: processID)
+        }
+
+        let datasetConfig = snapshot.root.router.flow.learning.dataset
+        let inputPath = opts.inputPath.isEmpty ? datasetConfig.localPath : opts.inputPath
+
+        let trainLimit = opts.trainLimit ?? datasetConfig.trainLimit
+        let validLimit = opts.validLimit ?? datasetConfig.validLimit
+        let shuffle = opts.shuffle ?? datasetConfig.shuffle
+        let seed = opts.seed ?? UInt64(datasetConfig.seed)
+        let jobs = max(1, opts.jobs ?? ProcessInfo.processInfo.activeProcessorCount)
+
+        let flowCfg = FlowConfig.from(snapshot.root.router)
+        let metadata = PrecomputedDataset.makeMetadata(config: snapshot.root.capsule, bins: flowCfg.bins)
+        let encoder = JSONEncoder()
+
+        let histogramConfig = snapshot.root.histogramLanguage
+        let retrievalUpdater: RetrievalCorpusUpdater?
+        if opts.updateRetrieval {
+            guard histogramConfig.enabled else {
+                Diagnostics.fail("histogram_language.enabled must be true when using --update-retrieval", processID: processID)
+            }
+            guard histogramConfig.retrieval.enabled else {
+                Diagnostics.fail("histogram_language.retrieval.enabled must be true when using --update-retrieval", processID: processID)
+            }
+            let path = histogramConfig.retrieval.corpusPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else {
+                Diagnostics.fail("histogram_language.retrieval.corpus_path is required when using --update-retrieval", processID: processID)
+            }
+            do {
+                retrievalUpdater = try RetrievalCorpusUpdater(path: path, bins: flowCfg.bins, processID: processID)
+            } catch {
+                Diagnostics.fail("Failed to open retrieval corpus: \(error.localizedDescription)", processID: processID)
+            }
+        } else {
+            retrievalUpdater = nil
+        }
+        defer {
+            retrievalUpdater?.close()
+        }
+
+        if opts.all {
+            let rootPath = inputPath.isEmpty ? "Artifacts/Datasets" : inputPath
+            let rootURL = URL(fileURLWithPath: rootPath)
+            let groups = discoverPreparedDatasetGroups(root: rootURL)
+            if groups.isEmpty {
+                Diagnostics.fail("No *_train.jsonl found under \(rootPath).", processID: processID)
+            }
+            for (idx, group) in groups.enumerated() {
+                do {
+                    let trainSamples = try LogiQADatasetLoader.loadJSONL(
+                        from: [group.trainPath],
+                        limit: trainLimit,
+                        shuffle: shuffle,
+                        seed: seed &+ UInt64(idx)
+                    )
+                    let validSamples: [LogiQASample]
+                    if let validPath = group.validPath {
+                        validSamples = try LogiQADatasetLoader.loadJSONL(
+                            from: [validPath],
+                            limit: validLimit,
+                            shuffle: false,
+                            seed: (seed &+ 1) &+ UInt64(idx)
+                        )
+                    } else {
+                        validSamples = []
+                    }
+
+            let outputDir = outputDirForAll(group: group)
+            try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+            let trainOut = outputDir.appendingPathComponent("precomputed_train.jsonl")
+            let validOut = outputDir.appendingPathComponent("precomputed_valid.jsonl")
+
+                    try writePrecomputedFile(
+                        metadata: metadata,
+                        samples: trainSamples,
+                        outputURL: trainOut,
+                        capsuleConfig: snapshot.root.capsule,
+                        bins: flowCfg.bins,
+                        processID: processID,
+                        encoder: encoder,
+                        retrievalUpdater: retrievalUpdater,
+                        jobs: jobs,
+                        resume: opts.resume
+                    )
+                    if !validSamples.isEmpty {
+                        try writePrecomputedFile(
+                            metadata: metadata,
+                            samples: validSamples,
+                            outputURL: validOut,
+                            capsuleConfig: snapshot.root.capsule,
+                            bins: flowCfg.bins,
+                            processID: processID,
+                            encoder: encoder,
+                            retrievalUpdater: retrievalUpdater,
+                            jobs: jobs,
+                            resume: opts.resume
+                        )
+                    }
+
+                    print("Precomputed train: \(trainSamples.count) -> \(trainOut.path)")
+                    if !validSamples.isEmpty {
+                        print("Precomputed valid: \(validSamples.count) -> \(validOut.path)")
+                    }
+                } catch {
+                    Diagnostics.fail("Failed to precompute dataset at \(group.trainPath): \(error.localizedDescription)", processID: processID)
+                }
+            }
+            if let updater = retrievalUpdater {
+                print("Retrieval corpus updated: +\(updater.appended) entries -> \(updater.corpusPath)")
+            }
+            return
+        }
+
+        guard !inputPath.isEmpty else {
+            Diagnostics.fail("Provide --input PATH or set learning.dataset.local_path to prepared dataset location.", processID: processID)
+        }
+
+        let outputDir = opts.outputDir.isEmpty ? "Artifacts/Datasets/Precomputed" : opts.outputDir
+        let outputURL = URL(fileURLWithPath: outputDir)
+
+        let inputURL = URL(fileURLWithPath: inputPath)
+        let isDir = (try? inputURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+
+        let trainPaths: [String]
+        let validPaths: [String]
+        if isDir {
+            let trainURL = inputURL.appendingPathComponent("prepared_train.jsonl")
+            let validURL = inputURL.appendingPathComponent("prepared_valid.jsonl")
+            trainPaths = FileManager.default.fileExists(atPath: trainURL.path) ? [trainURL.path] : []
+            validPaths = FileManager.default.fileExists(atPath: validURL.path) ? [validURL.path] : []
+        } else {
+            trainPaths = [inputURL.path]
+            let validFallback = opts.validPath.isEmpty ? (datasetConfig.validPath ?? "") : opts.validPath
+            validPaths = validFallback.isEmpty ? [] : [validFallback]
+        }
+
+        if trainPaths.isEmpty {
+            Diagnostics.fail("No prepared_train.jsonl found at input path \(inputPath).", processID: processID)
+        }
+
+        do {
+            let trainSamples = try LogiQADatasetLoader.loadJSONL(
+                from: trainPaths,
+                limit: trainLimit,
+                shuffle: shuffle,
+                seed: seed
+            )
+            let validSamples: [LogiQASample]
+            if !validPaths.isEmpty {
+                validSamples = try LogiQADatasetLoader.loadJSONL(
+                    from: validPaths,
+                    limit: validLimit,
+                    shuffle: false,
+                    seed: seed &+ 1
+                )
+            } else {
+                validSamples = []
+            }
+
+            let trainOut = outputURL.appendingPathComponent("precomputed_train.jsonl")
+            let validOut = outputURL.appendingPathComponent("precomputed_valid.jsonl")
+
+            try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+
+            try writePrecomputedFile(
+                metadata: metadata,
+                samples: trainSamples,
+                outputURL: trainOut,
+                capsuleConfig: snapshot.root.capsule,
+                bins: flowCfg.bins,
+                processID: processID,
+                encoder: encoder,
+                retrievalUpdater: retrievalUpdater,
+                jobs: jobs,
+                resume: opts.resume
+            )
+
+            if !validSamples.isEmpty {
+                try writePrecomputedFile(
+                    metadata: metadata,
+                    samples: validSamples,
+                    outputURL: validOut,
+                    capsuleConfig: snapshot.root.capsule,
+                    bins: flowCfg.bins,
+                    processID: processID,
+                    encoder: encoder,
+                    retrievalUpdater: retrievalUpdater,
+                    jobs: jobs,
+                    resume: opts.resume
+                )
+            }
+
+            print("Precomputed train: \(trainSamples.count) -> \(trainOut.path)")
+            if !validSamples.isEmpty {
+                print("Precomputed valid: \(validSamples.count) -> \(validOut.path)")
+            }
+            if let updater = retrievalUpdater {
+                print("Retrieval corpus updated: +\(updater.appended) entries -> \(updater.corpusPath)")
+            }
+        } catch {
+            Diagnostics.fail("Failed to precompute dataset: \(error.localizedDescription)", processID: processID)
+        }
+    }
+
+    private static func writePrecomputedFile(
+        metadata: PrecomputedDataset.Metadata,
+        samples: [LogiQASample],
+        outputURL: URL,
+        capsuleConfig: ConfigRoot.Capsule,
+        bins: Int,
+        processID: String,
+        encoder: JSONEncoder,
+        retrievalUpdater: RetrievalCorpusUpdater?,
+        jobs: Int,
+        resume: Bool
+    ) throws {
+        let fm = FileManager.default
+        var existingIDs = Set<String>()
+        var shouldWriteMetadata = true
+        if resume, fm.fileExists(atPath: outputURL.path) {
+            let existing = try loadPrecomputedIndex(
+                from: outputURL,
+                capsuleConfig: capsuleConfig,
+                bins: bins
+            )
+            existingIDs = existing.ids
+            shouldWriteMetadata = existing.hasMetadata == false
+            if shouldWriteMetadata {
+                Diagnostics.fail("Precomputed file at \(outputURL.path) is missing metadata header", processID: processID)
+            }
+        } else {
+            if fm.fileExists(atPath: outputURL.path) {
+                try fm.removeItem(at: outputURL)
+            }
+            fm.createFile(atPath: outputURL.path, contents: nil)
+        }
+
+        let handle = try FileHandle(forWritingTo: outputURL)
+        defer { try? handle.close() }
+        if resume {
+            try handle.seekToEnd()
+        }
+
+        if shouldWriteMetadata {
+            let metaData = try encoder.encode(metadata)
+            handle.write(metaData)
+            handle.write(Data([0x0A]))
+        }
+
+        let workerCount = max(1, jobs)
+        let baseBatch = max(32, min(512, samples.count / workerCount))
+        let batchSize = max(32, baseBatch)
+        let queue = DispatchQueue(label: "energetic.precompute.worker", attributes: .concurrent)
+
+        let filteredSamples: [LogiQASample]
+        if existingIDs.isEmpty {
+            filteredSamples = samples
+        } else {
+            filteredSamples = samples.filter { !existingIDs.contains($0.id) }
+        }
+
+        for batchStart in stride(from: 0, to: filteredSamples.count, by: batchSize) {
+            let batchEnd = min(filteredSamples.count, batchStart + batchSize)
+            let batchCount = batchEnd - batchStart
+            var results = Array<PrecomputedWorkItem?>(repeating: nil, count: batchCount)
+            let group = DispatchGroup()
+            let resultLock = NSLock()
+
+            for localIndex in 0..<batchCount {
+                group.enter()
+                queue.async {
+                    let sampleIndex = batchStart + localIndex
+                    let sample = filteredSamples[sampleIndex]
+                    var localCache: [String: EncodedSample] = [:]
+                    let pair = makeTrainingPair(
+                        index: sampleIndex,
+                        samples: [sample],
+                        fallbackInput: sample.input_text,
+                        fallbackAnswer: sample.answer_text,
+                        capsuleConfig: capsuleConfig,
+                        bins: bins,
+                        processID: processID,
+                        cache: &localCache
+                    )
+                    let record = PrecomputedDataset.makeRecord(
+                        id: sample.id,
+                        split: sample.split,
+                        energies: pair.energies,
+                        targets: pair.targets,
+                        targetsNorm: pair.targetsNorm,
+                        wrongTargets: pair.wrongTargets,
+                        wrongTargetsNorm: pair.wrongTargetsNorm
+                    )
+                    let item = PrecomputedWorkItem(record: record, answerText: pair.answerText, targets: pair.targets)
+                    resultLock.lock()
+                    results[localIndex] = item
+                    resultLock.unlock()
+                    group.leave()
+                }
+            }
+
+            group.wait()
+            for item in results {
+                guard let item else {
+                    Diagnostics.fail("Precompute worker failed to build record", processID: processID)
+                }
+                retrievalUpdater?.appendIfMissing(text: item.answerText, histogram: item.targets)
+                let data = try encoder.encode(item.record)
+                handle.write(data)
+                handle.write(Data([0x0A]))
+            }
+        }
+    }
+
+    private struct PrecomputedWorkItem {
+        let record: PrecomputedDataset.Record
+        let answerText: String
+        let targets: [Float]
+    }
+
+    private struct PrecomputedIndex {
+        let ids: Set<String>
+        let hasMetadata: Bool
+    }
+
+    private static func loadPrecomputedIndex(
+        from url: URL,
+        capsuleConfig: ConfigRoot.Capsule,
+        bins: Int
+    ) throws -> PrecomputedIndex {
+        let decoder = JSONDecoder()
+        var ids = Set<String>()
+        var hasMetadata = false
+        try forEachJSONLLine(url: url) { line in
+            if let meta = try? decoder.decode(PrecomputedDataset.Metadata.self, from: line),
+               meta.type == "metadata" {
+                if !hasMetadata {
+                    try PrecomputedDataset.validateMetadata(meta, config: capsuleConfig, bins: bins)
+                    hasMetadata = true
+                }
+                return
+            }
+            let record = try decoder.decode(PrecomputedDataset.Record.self, from: line)
+            ids.insert(record.id)
+        }
+        return PrecomputedIndex(ids: ids, hasMetadata: hasMetadata)
+    }
+
+    private static func forEachJSONLLine(url: URL, _ body: (Data) throws -> Void) throws {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var buffer = Data()
+        while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            buffer.append(chunk)
+            while let nl = buffer.firstIndex(of: 0x0A) {
+                let lineSlice = buffer[..<nl]
+                buffer.removeSubrange(..<buffer.index(after: nl))
+                var line = Data(lineSlice)
+                if line.last == 0x0D { line.removeLast() }
+                if line.isEmpty { continue }
+                try body(line)
+            }
+        }
+
+        if !buffer.isEmpty {
+            var line = buffer
+            if line.last == 0x0D { line.removeLast() }
+            if !line.isEmpty {
+                try body(line)
+            }
+        }
+    }
+
+    private final class RetrievalCorpusUpdater {
+        private let bins: Int
+        private let processID: String
+        private let encoder: JSONEncoder
+        private var seen: Set<String>
+        private let handle: FileHandle
+        private let url: URL
+        private(set) var appended: Int = 0
+
+        var corpusPath: String {
+            url.path
+        }
+
+        init(path: String, bins: Int, processID: String) throws {
+            self.bins = bins
+            self.processID = processID
+            self.encoder = JSONEncoder()
+            self.url = URL(fileURLWithPath: path)
+
+            let fm = FileManager.default
+            let dir = url.deletingLastPathComponent()
+            if !fm.fileExists(atPath: dir.path) {
+                try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+            }
+
+            if fm.fileExists(atPath: url.path) {
+                let existing = try HistogramRetriever.loadCorpus(from: url.path, bins: bins)
+                self.seen = Set(existing.map { $0.text })
+            } else {
+                self.seen = []
+                fm.createFile(atPath: url.path, contents: nil)
+            }
+
+            self.handle = try FileHandle(forWritingTo: url)
+            try self.handle.seekToEnd()
+        }
+
+        func appendIfMissing(text: String, histogram: [Float]) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            guard histogram.count == bins else {
+                Diagnostics.fail("Retrieval histogram size mismatch for '\(trimmed)'", processID: processID)
+            }
+            for value in histogram {
+                guard value.isFinite, value >= 0 else {
+                    Diagnostics.fail("Retrieval histogram contains invalid values for '\(trimmed)'", processID: processID)
+                }
+            }
+            guard seen.insert(trimmed).inserted else { return }
+            let entry = HistogramCorpusEntry(text: trimmed, histogram: histogram)
+            do {
+                let data = try encoder.encode(entry)
+                handle.write(data)
+                handle.write(Data([0x0A]))
+                appended += 1
+            } catch {
+                Diagnostics.fail("Failed to append retrieval entry: \(error.localizedDescription)", processID: processID)
+            }
+        }
+
+        func close() {
+            try? handle.close()
+        }
+    }
+
+    private struct DatasetGroup {
+        let trainPath: String
+        let validPath: String?
+        let outputDir: URL
+        let stem: String
+    }
+
+    private static func discoverPreparedDatasetGroups(root: URL) -> [DatasetGroup] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: root.path) else { return [] }
+        guard let enumerator = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+
+        var trainFiles: [String: String] = [:]
+        var validFiles: [String: String] = [:]
+
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            if name.hasPrefix("precomputed_") { continue }
+            if name.hasSuffix("_train.jsonl") {
+                let key = datasetKey(for: url)
+                trainFiles[key] = url.path
+            } else if name.hasSuffix("_valid.jsonl") {
+                let key = datasetKey(for: url)
+                validFiles[key] = url.path
+            }
+        }
+
+        var groups: [DatasetGroup] = []
+        for (key, trainPath) in trainFiles {
+            let validPath = validFiles[key]
+            let output = outputNames(forKey: key)
+            let outDir = URL(fileURLWithPath: output.outputDir)
+            groups.append(
+                DatasetGroup(
+                    trainPath: trainPath,
+                    validPath: validPath,
+                    outputDir: outDir,
+                    stem: output.stem
+                )
+            )
+        }
+        return groups.sorted { $0.trainPath < $1.trainPath }
+    }
+
+    private static func datasetKey(for url: URL) -> String {
+        let dir = url.deletingLastPathComponent().path
+        let name = url.lastPathComponent
+        let stem: String
+        if name.hasSuffix("_train.jsonl") {
+            stem = String(name.dropLast("_train.jsonl".count))
+        } else if name.hasSuffix("_valid.jsonl") {
+            stem = String(name.dropLast("_valid.jsonl".count))
+        } else {
+            stem = name
+        }
+        return "\(dir)|\(stem)"
+    }
+
+    private static func outputNames(forKey key: String) -> (outputDir: String, stem: String) {
+        let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        let dir = parts.first.map(String.init) ?? ""
+        let stem = parts.count > 1 ? String(parts[1]) : "dataset"
+        return (dir, stem)
+    }
+
+    private static func outputDirForAll(group: DatasetGroup) -> URL {
+        let base = group.outputDir
+        if group.stem == "prepared" {
+            return base.appendingPathComponent("precomputed", isDirectory: true)
+        }
+        return base.appendingPathComponent("precomputed", isDirectory: true).appendingPathComponent(group.stem, isDirectory: true)
+    }
+
     private static func truncateIfNeeded(_ data: Data, maxBytes: Int) -> Data {
         guard data.count > maxBytes else { return data }
         return Data(data.prefix(maxBytes))
@@ -692,5 +1429,26 @@ struct EnergeticCLI {
             }
         }
         return paths.sorted()
+    }
+
+    private struct LCG {
+        private var state: UInt64
+        init(seed: UInt64) { self.state = seed == 0 ? 0x9E3779B97F4A7C15 : seed }
+        mutating func next() -> UInt64 {
+            state = state &* 6364136223846793005 &+ 1
+            return state
+        }
+        mutating func nextInt(upperBound: Int) -> Int {
+            return Int(next() % UInt64(upperBound))
+        }
+    }
+
+    private static func shuffleInPlace<T>(_ array: inout [T], seed: UInt64) {
+        var rng = LCG(seed: seed)
+        if array.count < 2 { return }
+        for i in stride(from: array.count - 1, through: 1, by: -1) {
+            let j = rng.nextInt(upperBound: i + 1)
+            if i != j { array.swapAt(i, j) }
+        }
     }
 }

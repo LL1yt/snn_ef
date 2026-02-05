@@ -6,7 +6,7 @@ public enum HistogramRetrievalMetric: String, Sendable {
     case cosine
 }
 
-public struct HistogramCorpusEntry: Decodable, Sendable {
+public struct HistogramCorpusEntry: Codable, Sendable {
     public let text: String
     public let histogram: [Float]
 

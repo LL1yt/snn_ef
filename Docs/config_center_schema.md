@@ -213,6 +213,10 @@ Constraints:
 - `projection.final_weight_power > 0`.
 - `learning.dataset.local_path` required when dataset enabled, unless `learning.dataset.auto_scan == true`.
 - `learning.dataset.valid_path` optional.
+- `learning.dataset.cache_mode`:
+  - `prepared`: обучение декодирует тексты в энергии на лету (медленнее, CPU-heavy).
+  - `precomputed`: обучение читает base64-байты `precomputed_train.jsonl`/`precomputed_valid.jsonl` без капсульной обработки (быстрее, GPU-ориентировано). Генерация: `energetic-cli precompute-dataset`.
+  - `raw`: допустимо, но самый медленный путь.
 - `learning.negative.weight ≥ 0`, `learning.negative.margin ≥ 0`.
 - `learning.gain_error_power ≥ 0`, `learning.gain_error_scale ≥ 0`.
 - `learning.eval_every ≥ 1`.

@@ -159,7 +159,6 @@ public final class FlowLearningLoop {
     private var previousBinLoss: Float = .infinity
     private let retriever: HistogramRetriever?
 
-    private var gainsLiveOnGPU: Bool = false
 
     public init(flowConfig: FlowConfig, learningConfig: LearningConfig, seed: UInt64, retriever: HistogramRetriever? = nil) {
         self.flowConfig = flowConfig
@@ -214,10 +213,15 @@ public final class FlowLearningLoop {
         var totalParticleSteps: UInt32 = 0
         var completionCount: UInt32 = 0
         let initialParticleCount = seeds.count
-        var gpuWeightedYHat: [Float]? = nil
+
+        // Predicted signal for learning/UI: summed energy histogram over output bins.
+        // - Fast path: GPU provides `summary.bins` (sum of completion energies per bin, gain-adjusted).
+        // - Slow path: we accumulate from completion events.
+        var predictedHistogram: [Float]? = nil
+
         var gpuMeanRadialMiss: Float? = nil
         var gpuBoundaryLoss: Float? = nil
-        var gpuLearningScalars: FlowLearningScalars? = nil
+
         let inputHistogram: [Float]? = needsAnyLogPayload ? HistogramBuilder.fromEnergies(energies, bins: flowConfig.bins) : nil
 
         // Initial bins for alignment weight (dense by seed index; store -1 when unknown)
@@ -242,12 +246,6 @@ public final class FlowLearningLoop {
         var predictedBins: [Int]? = nil
         var projectedHistogram: [Float]? = nil
         if needsTraceLog {
-            // If gains were updated on GPU in prior epochs, sync them back before CPU stepping.
-            if gainsLiveOnGPU {
-                params.gains = router.readGainsFromGPU()
-                gainsLiveOnGPU = false
-            }
-
             for id in trackedIDs { traceSteps[id] = [] }
             for id in trackedIDs { pathPoints[id] = [] }
 
@@ -344,143 +342,44 @@ public final class FlowLearningLoop {
                 predictedBins = binsByID
                 projectedHistogram = projected
             }
-        } else {
-            // Fast path: one GPU-run with completions + counters + scalar metrics
-            let wantsWeighted = (learningConfig.outputSignal == .weightedBinsGPU) && (targets.count == flowConfig.bins)
 
-            let summary: FlowSimulationSummary
-            if wantsWeighted {
-                // Precompute normalized targets for GPU learning scalars (no yHat required).
-                let targetNormForGPU: [Float]
-                if let cached = targetsNormOverride, cached.count == targets.count {
-                    targetNormForGPU = cached
-                } else {
-                    targetNormForGPU = normalizeBins(targets)
+            // Predicted histogram (slow path): sum gain-adjusted completion energies by output bin.
+            var y = [Float](repeating: 0, count: flowConfig.bins)
+            if !allCompletions.isEmpty {
+                for comp in allCompletions {
+                    let b = comp.binIndex
+                    guard b >= 0 && b < flowConfig.bins else { continue }
+                    let g = FlowProjector.gain(for: b, bins: flowConfig.bins, gains: params.gains)
+                    y[b] += g * max(0, comp.energy)
                 }
-
-                let wrongNormForGPU: [[Float]]
-                if learningConfig.negative.enabled, !wrongTargets.isEmpty {
-                    if let cached = wrongTargetsNormOverride, cached.count == wrongTargets.count {
-                        wrongNormForGPU = cached
-                    } else {
-                        wrongNormForGPU = wrongTargets.map { normalizeBins($0) }
-                    }
-                } else {
-                    wrongNormForGPU = []
-                }
-                precondition(
-                    wrongNormForGPU.count <= FlowMetalLearningRequest.maxAuxTargetCount,
-                    "GPU negative loss/repulsion supports up to \(FlowMetalLearningRequest.maxAuxTargetCount) wrongTargets"
-                )
-
-                let optionTargetsForGPU: [[Float]]
-                let correctIndexForGPU: Int?
-                if optionTargets.count <= FlowMetalLearningRequest.maxAuxTargetCount {
-                    optionTargetsForGPU = optionTargets
-                    correctIndexForGPU = correctIndex
-                } else {
-                    // optionAccuracy is an optional metric; drop it rather than failing the training run.
-                    optionTargetsForGPU = []
-                    correctIndexForGPU = nil
-                }
-
-                let learningReq = FlowMetalLearningRequest(
-                    targetNorm: targetNormForGPU,
-                    wrongTargetsNorm: wrongNormForGPU,
-                    optionTargetsRaw: optionTargetsForGPU,
-                    correctIndex: correctIndexForGPU,
-                    doUpdateGains: applyUpdates,
-                    gainLearningRate: learningConfig.learningRates.gain,
-                    gainBounds: learningConfig.bounds.gain,
-                    errorPower: learningConfig.gainErrorPower,
-                    errorScale: learningConfig.gainErrorScale,
-                    lambdaG: 0.01,
-                    negativeWeight: learningConfig.negative.enabled ? learningConfig.negative.weight : 0,
-                    negativeMargin: learningConfig.negative.margin
-                )
-
-                let useExisting = gainsLiveOnGPU
-                summary = router.simulateWithCompletionsLearningGPU(
-                    initial: seeds,
-                    gains: useExisting ? nil : params.gains,
-                    steps: learningConfig.stepsPerEpoch,
-                    initialBins: initialBinsByIndex,
-                    targetsRaw: targets,
-                    aggregator: learningConfig.aggregatorConfig,
-                    // Optimization: completions GPU→CPU readback is only needed for CPU-side aggregation/analysis.
-                    // UI tracing uses the slow path (stepWithEvents), so disabling readback here does not affect UI logs.
-                    includeCompletions: false,
-                    // Optimization: histogram bins are not used by the training loop (loss uses yHat), so skip their GPU work/readback.
-                    includeHistogram: false,
-                    learning: learningReq,
-                    useExistingGains: useExisting,
-                    // Optimization: when using GPU learning scalars + GPU gain updates, do not read back yHat,
-                    // unless we need it for a metrics log payload.
-                    includeWeightedYHatReadback: needsMetricsLog
-                )
-                gainsLiveOnGPU = true
-            } else {
-                summary = router.simulateWithCompletions(
-                    initial: seeds,
-                    gains: params.gains,
-                    steps: learningConfig.stepsPerEpoch,
-                    initialBins: initialBinsByIndex,
-                    // Optimization: completions GPU→CPU readback is only needed for CPU-side aggregation/analysis.
-                    // UI tracing uses the slow path (stepWithEvents), so disabling readback here does not affect UI logs.
-                    includeCompletions: true,
-                    // Optimization: histogram bins are not used by the training loop (loss uses yHat), so skip their GPU work/readback.
-                    includeHistogram: false
-                )
             }
+            predictedHistogram = y
+        } else {
+            // Fast path: one GPU-run with counters + scalar metrics + histogram readback.
+            let summary = router.simulateWithCompletions(
+                initial: seeds,
+                gains: params.gains,
+                steps: learningConfig.stepsPerEpoch,
+                initialBins: initialBinsByIndex,
+                // Training signal is the summed histogram bins; per-particle completion readback is not required.
+                includeCompletions: false,
+                // Required: we learn from the predicted histogram.
+                includeHistogram: true
+            )
 
-            gpuWeightedYHat = summary.weightedYHat
+            predictedHistogram = summary.bins
             gpuMeanRadialMiss = summary.meanRadialMiss
             gpuBoundaryLoss = summary.boundaryLoss
-            gpuLearningScalars = summary.learningScalars
             completionCount = summary.completionCount
             totalSpikes = summary.spikeCount
             totalParticleSteps = summary.particleStepCount
-
-            // Only materialize completions when we need the CPU aggregator.
-            // In weighted-bins GPU mode, completions readback is disabled (includeCompletions=false), so skip.
-            if gpuWeightedYHat == nil, learningConfig.outputSignal != .weightedBinsGPU {
-                allCompletions.reserveCapacity(Int(summary.completionCount))
-                for comp in summary.completions {
-                    guard comp.bin >= 0 else { continue }
-                    let initialBin = comp.initialBin >= 0 ? Int(comp.initialBin) : nil
-                    allCompletions.append(
-                        CompletionEvent(
-                            particleID: Int(comp.particleID),
-                            binIndex: Int(comp.bin),
-                            position: SIMD2<Float>(comp.x, comp.y),
-                            energy: comp.energy,
-                            spiked: comp.spiked != 0,
-                            initialBinIndex: initialBin
-                        )
-                    )
-                }
-            }
         }
 
-        // Output signal for losses (CPU aggregator by default; GPU mode can skip yHat readback entirely)
-        let yHat: [Float]
-        if let gpuWeightedYHat {
-            yHat = gpuWeightedYHat
-        } else if gpuLearningScalars != nil {
-            // In weighted-bins GPU mode we request GPU learning scalars and can avoid CPU-side yHat aggregation.
-            yHat = []
-        } else {
-            yHat = CompletionAggregator.aggregate(
-                completions: allCompletions,
-                targets: targets,
-                config: learningConfig.aggregatorConfig,
-                bins: flowConfig.bins,
-                gains: params.gains
-            )
-        }
+        // Predicted signal for losses/updates/UI: summed histogram bins.
+        let yHat: [Float] = predictedHistogram ?? [Float](repeating: 0, count: flowConfig.bins)
 
         // Normalize for loss computation (keep raw for UI/metrics)
-        let yHatNorm = (gpuLearningScalars != nil) ? [] : normalizeBins(yHat)
+        let yHatNorm = normalizeBins(yHat)
 
         let targetNorm: [Float]
         if let cached = targetsNormOverride, cached.count == targets.count {
@@ -489,11 +388,11 @@ public final class FlowLearningLoop {
             targetNorm = normalizeBins(targets)
         }
 
-        // Compute losses (prefer GPU-computed scalars when available)
-        let binLoss = gpuLearningScalars?.binLoss ?? LossFunctions.binLoss(yHat: yHatNorm, target: targetNorm, gains: params.gains)
+        // Compute losses
+        let binLoss = LossFunctions.binLoss(yHat: yHatNorm, target: targetNorm, gains: params.gains)
 
         let wrongNorm: [[Float]]
-        if gpuLearningScalars == nil, learningConfig.negative.enabled, !wrongTargets.isEmpty {
+        if learningConfig.negative.enabled, !wrongTargets.isEmpty {
             if let cached = wrongTargetsNormOverride, cached.count == wrongTargets.count {
                 wrongNorm = cached
             } else {
@@ -503,9 +402,7 @@ public final class FlowLearningLoop {
             wrongNorm = []
         }
         let negativeLoss: Float
-        if let gpu = gpuLearningScalars {
-            negativeLoss = gpu.negativeLoss
-        } else if !wrongNorm.isEmpty {
+        if !wrongNorm.isEmpty {
             let base = LossFunctions.negativeMarginLoss(yHat: yHatNorm, wrongTargets: wrongNorm, margin: learningConfig.negative.margin)
             negativeLoss = base * learningConfig.negative.weight
         } else {
@@ -524,11 +421,10 @@ public final class FlowLearningLoop {
         )
 
         let optionAccuracy: Float?
-        // Prefer GPU-computed accuracy when available.
-        if let gpuAcc = gpuLearningScalars?.optionAccuracy {
-            optionAccuracy = gpuAcc
-        } else if let correctIndex, !optionTargets.isEmpty, !yHat.isEmpty {
-            let distances = optionTargets.map { LossFunctions.l2Distance(yHat, $0) }
+        if let correctIndex, !optionTargets.isEmpty, !yHatNorm.isEmpty {
+            let distances = optionTargets.map { option in
+                LossFunctions.l2Distance(yHatNorm, normalizeBins(option))
+            }
             let minIdx = distances.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
             optionAccuracy = (minIdx == correctIndex) ? 1.0 : 0.0
         } else {
@@ -545,37 +441,22 @@ public final class FlowLearningLoop {
         let histogramMatchCosine: Float?
         let retrievalResult: HistogramRetrievalResult?
 
-        // Prefer GPU-provided statistics when available.
-        if let scalars = gpuLearningScalars {
-            nonzeroBins = scalars.nonzeroBins
-            yHatStats = LearningMetrics.BinStatistics(
-                mean: scalars.yHatStatsMean,
-                variance: scalars.yHatStatsVariance,
-                min: scalars.yHatStatsMin,
-                max: scalars.yHatStatsMax
-            )
-            histogramMatchL1 = scalars.histogramMatchL1
+        nonzeroBins = yHat.filter { $0 > 0 }.count
+        yHatStats = computeBinStatistics(yHat)
+        if yHatNorm.count == targetNorm.count, !yHatNorm.isEmpty {
+            let metricValues = HistogramMetrics.compute(yHatNorm, targetNorm)
+            histogramMatchL1 = metricValues.l1
+            histogramMatchL2 = metricValues.l2
+            histogramMatchCosine = metricValues.cosine
+        } else {
+            histogramMatchL1 = nil
             histogramMatchL2 = nil
             histogramMatchCosine = nil
-            retrievalResult = nil
+        }
+        if needsTraceLog, let retriever, !yHatNorm.isEmpty {
+            retrievalResult = retriever.retrieve(normalized: yHatNorm).first
         } else {
-            nonzeroBins = yHat.filter { $0 > 0 }.count
-            yHatStats = computeBinStatistics(yHat)
-            if yHatNorm.count == targetNorm.count, !yHatNorm.isEmpty {
-                let metricValues = HistogramMetrics.compute(yHatNorm, targetNorm)
-                histogramMatchL1 = metricValues.l1
-                histogramMatchL2 = metricValues.l2
-                histogramMatchCosine = metricValues.cosine
-            } else {
-                histogramMatchL1 = nil
-                histogramMatchL2 = nil
-                histogramMatchCosine = nil
-            }
-            if needsTraceLog, let retriever, !yHatNorm.isEmpty {
-                retrievalResult = retriever.retrieve(normalized: yHatNorm).first
-            } else {
-                retrievalResult = nil
-            }
+            retrievalResult = nil
         }
 
         let paramDeltas: LearningMetrics.ParameterDeltas
@@ -585,46 +466,39 @@ public final class FlowLearningLoop {
             let oldRadialBias = params.radialBias
             let oldSpikeKick = params.spikeKick
 
-            let gainDeltaMean: Float
-            let gainDeltaVariance: Float
+            let oldGains = params.gains
 
-            if let gpu = gpuLearningScalars {
-                // In GPU learning mode gains were updated in-place on GPU.
-                gainDeltaMean = gpu.gainDeltaMean
-                gainDeltaVariance = gpu.gainDeltaVariance
-            } else {
-                let oldGains = params.gains
-                // Update gains on CPU
-                ParameterUpdater.updateGains(
+            // Update gains on CPU
+            ParameterUpdater.updateGains(
+                gains: &params.gains,
+                yHat: yHatNorm,
+                target: targetNorm,
+                learningRate: learningConfig.learningRates.gain,
+                bounds: learningConfig.bounds.gain,
+                errorPower: learningConfig.gainErrorPower,
+                errorScale: learningConfig.gainErrorScale
+            )
+            if !wrongNorm.isEmpty {
+                ParameterUpdater.repelGains(
                     gains: &params.gains,
                     yHat: yHatNorm,
-                    target: targetNorm,
+                    wrongTargets: wrongNorm,
                     learningRate: learningConfig.learningRates.gain,
                     bounds: learningConfig.bounds.gain,
+                    weight: learningConfig.negative.weight,
+                    margin: learningConfig.negative.margin,
                     errorPower: learningConfig.gainErrorPower,
                     errorScale: learningConfig.gainErrorScale
                 )
-                if !wrongNorm.isEmpty {
-                    ParameterUpdater.repelGains(
-                        gains: &params.gains,
-                        yHat: yHatNorm,
-                        wrongTargets: wrongNorm,
-                        learningRate: learningConfig.learningRates.gain,
-                        bounds: learningConfig.bounds.gain,
-                        weight: learningConfig.negative.weight,
-                        margin: learningConfig.negative.margin,
-                        errorPower: learningConfig.gainErrorPower,
-                        errorScale: learningConfig.gainErrorScale
-                    )
-                }
-
-                // CPU gain delta stats
-                let gainDeltas = zip(oldGains, params.gains).map { $1 - $0 }
-                let mean = gainDeltas.reduce(0, +) / Float(gainDeltas.count)
-                let variance = gainDeltas.map { d in (d - mean) * (d - mean) }.reduce(0, +) / Float(gainDeltas.count)
-                gainDeltaMean = mean
-                gainDeltaVariance = variance
             }
+
+            // CPU gain delta stats
+            let gainDeltas = zip(oldGains, params.gains).map { $1 - $0 }
+            let gainDeltaMean = gainDeltas.reduce(0, +) / Float(gainDeltas.count)
+            let gainDeltaVariance = gainDeltas.map { d in
+                let delta = d - gainDeltaMean
+                return delta * delta
+            }.reduce(0, +) / Float(gainDeltas.count)
 
             ParameterUpdater.updateLifThreshold(
                 threshold: &params.lifThreshold,
@@ -714,17 +588,12 @@ public final class FlowLearningLoop {
                 paths: paths
             )
         } else if needsMetricsLog {
-            // In GPU learning mode gains can be updated in-place on GPU; sync them back for accurate logging.
-            var paramsForLog = params
-            if gainsLiveOnGPU {
-                paramsForLog.gains = router.readGainsFromGPU()
-            }
             let emptyTraces: [LearningLogPayload.Trace] = []
             let emptyPaths: [LearningLogPayload.Path] = []
             emitLearningLog(
                 epoch: epoch,
                 metrics: metrics,
-                params: paramsForLog,
+                params: params,
                 yHat: yHat,
                 targets: targets,
                 inputText: nil,
@@ -746,16 +615,12 @@ public final class FlowLearningLoop {
 
     /// Returns current learnable parameters
     public func getParameters() -> LearnableParameters {
-        if gainsLiveOnGPU {
-            params.gains = router.readGainsFromGPU()
-        }
         return params
     }
 
     /// Loads parameters from a checkpoint
     public func loadParameters(_ params: LearnableParameters) {
         self.params = params
-        gainsLiveOnGPU = false
         updateRouterConfig()
     }
 

@@ -14,6 +14,8 @@ public struct LearningMetricsView: View {
     @State private var labelMode: LabelMode = .key
     @State private var showInputOverlay: Bool = false
     @State private var showProjectedOverlay: Bool = false
+    @State private var showStreamTracks: Bool = false
+    @State private var normalizeHistogramView: Bool = true
 
     public init(logFileURL: URL?, title: String = "Learning metrics", pollInterval: TimeInterval = 0.5, maxRecords: Int = 200) {
         _viewModel = StateObject(wrappedValue: LearningMetricsViewModel(
@@ -86,17 +88,26 @@ public struct LearningMetricsView: View {
     @ViewBuilder
     private var centerColumn: some View {
         if let record = currentRecord {
-            StreamTracksView(
-                traces: record.traces ?? [],
-                paths: record.paths ?? [],
-                radius: record.radius.R,
-                snapToGrid: snapToGrid,
-                speedBoost: speedBoost,
-                angleBoost: angleBoost,
-                maxLabelCount: maxLabelCount,
-                labelMode: labelMode
-            )
-            .frame(maxWidth: .infinity)
+            DisclosureGroup(isExpanded: $showStreamTracks) {
+                if showStreamTracks {
+                    StreamTracksView(
+                        traces: record.traces ?? [],
+                        paths: record.paths ?? [],
+                        radius: record.radius.R,
+                        snapToGrid: snapToGrid,
+                        speedBoost: speedBoost,
+                        angleBoost: angleBoost,
+                        maxLabelCount: maxLabelCount,
+                        labelMode: labelMode,
+                        showHeader: false
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            } label: {
+                Text("Stream dynamics (tracks)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
         } else {
             EmptyView()
         }
@@ -184,15 +195,20 @@ public struct LearningMetricsView: View {
             let projectedRaw = latest.projectedHistogram
 
             if let outputRaw {
+                let output = normalizeHistogramView ? normalizeBins(outputRaw) : outputRaw
+                let target = targetRaw.map { normalizeHistogramView ? normalizeBins($0) : $0 }
+                let input = inputRaw.map { normalizeHistogramView ? normalizeBins($0) : $0 }
+                let projected = projectedRaw.map { normalizeHistogramView ? normalizeBins($0) : $0 }
+
                 let series = downsampleHistogramSeries(
-                    output: outputRaw,
-                    target: targetRaw,
-                    input: inputRaw,
-                    projected: projectedRaw,
+                    output: output,
+                    target: target,
+                    input: input,
+                    projected: projected,
                     maxBins: 128
                 )
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Histogram (output vs target)")
+                    Text("Histogram (model output vs target)")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     HistogramComparisonView(
@@ -207,7 +223,7 @@ public struct LearningMetricsView: View {
                         hasInput: series.input != nil,
                         hasProjected: series.projected != nil
                     )
-                    histogramSignatureView(output: outputRaw, target: targetRaw)
+                    histogramSignatureView(output: output, target: target)
                     predictionPanel(record: latest)
                     histogramOverlayToggles(
                         hasInput: series.input != nil,
@@ -259,7 +275,7 @@ public struct LearningMetricsView: View {
         let top = topBinsSignature(values: output, maxCount: 6)
         let targetTop = target.map { topBinsSignature(values: $0, maxCount: 6) }
         VStack(alignment: .leading, spacing: 4) {
-            Text("Signature (top bins)")
+            Text("Top bins (signature)")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Text("output: \(top)")
@@ -270,7 +286,7 @@ public struct LearningMetricsView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundColor(.secondary)
             }
-            Text("Histogram is orderless; sequence below is debug-only.")
+            Text("Primary signal is histogram; sequence below is debug-only.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -281,7 +297,7 @@ public struct LearningMetricsView: View {
         if let predictedBins = record.predictedBins, !predictedBins.isEmpty {
             let preview = binsPreview(predictedBins, maxCount: 96)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Prediction (bins sequence)")
+                Text("Bins sequence (debug)")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text(preview.text)
@@ -291,7 +307,7 @@ public struct LearningMetricsView: View {
                 Text("count \(predictedBins.count) | missing \(preview.missingCount)")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                Text("Sequence shown for debug only.")
+                Text("Not used for loss; debug only.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -502,10 +518,10 @@ public struct LearningMetricsView: View {
     @ViewBuilder
     private func histogramOverlayLegend(hasTarget: Bool, hasInput: Bool, hasProjected: Bool) -> some View {
         HStack(spacing: 8) {
-            LegendSwatch(color: .green, label: "Output")
-            if hasTarget { LegendSwatch(color: .blue, label: "Target") }
-            if hasInput { LegendSwatch(color: .orange, label: "Input") }
-            if hasProjected { LegendSwatch(color: .purple, label: "Projected") }
+            LegendSwatch(color: .green, label: "Model output")
+            if hasTarget { LegendSwatch(color: .blue, label: "Target (label)") }
+            if hasInput { LegendSwatch(color: .orange, label: "Input (text)") }
+            if hasProjected { LegendSwatch(color: .purple, label: "Projected (r/R)") }
         }
         .font(.caption2)
         .foregroundColor(.secondary)
@@ -514,6 +530,8 @@ public struct LearningMetricsView: View {
     @ViewBuilder
     private func histogramOverlayToggles(hasInput: Bool, hasProjected: Bool) -> some View {
         HStack(spacing: 12) {
+            Toggle("Normalize", isOn: $normalizeHistogramView)
+                .toggleStyle(.switch)
             if hasInput {
                 Toggle("Input overlay", isOn: $showInputOverlay)
                     .toggleStyle(.switch)
@@ -544,6 +562,10 @@ public struct LearningMetricsView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundColor(.secondary)
             }
+        } else {
+            Text("Closest example: no match")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -567,6 +589,12 @@ public struct LearningMetricsView: View {
         let slice = bins.prefix(maxCount)
         let text = slice.map { $0 < 0 ? "x" : String($0) }.joined(separator: " ")
         return BinsPreview(text: text, missingCount: missing)
+    }
+
+    private func normalizeBins(_ bins: [Float]) -> [Float] {
+        let sum = bins.reduce(0, +)
+        guard sum > 0 else { return bins }
+        return bins.map { $0 / sum }
     }
 
     private func movingAverage(values: [Double], window: Int) -> [Double] {
@@ -908,15 +936,18 @@ struct StreamTracksView: View {
     let angleBoost: Double
     let maxLabelCount: Int
     let labelMode: LabelMode
+    let showHeader: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                Text("Stream dynamics (tracks)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Spacer()
-                TrackLegendView()
+            if showHeader {
+                HStack(alignment: .top, spacing: 8) {
+                    Text("Stream dynamics (tracks)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    TrackLegendView()
+                }
             }
 
             if traces.isEmpty && paths.isEmpty {
