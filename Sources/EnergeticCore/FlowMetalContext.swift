@@ -534,7 +534,8 @@ final class FlowMetalContext {
         steps: Int,
         initialBinsByIndex: [Int32]?,
         targetsRaw: [Float]? = nil,
-        aggregator: AggregatorConfig? = nil
+        aggregator: AggregatorConfig? = nil,
+        includeCompletions: Bool = true
     ) -> FlowSimulationSummary {
         let token = LoggingHub.beginSignpost("flow.learn.run")
         let count = particles.count
@@ -645,14 +646,17 @@ final class FlowMetalContext {
         }
 
         // Completion buffers init
+        // Note: completionWritten MUST be cleared every run because it gates per-particle completion recording/counting.
         fillBuffer(completionWrittenBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
-        fillBuffer(completionSpikedBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
-        fillBuffer(completionIDBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
-        fillBuffer(completionBinBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
-        fillBuffer(completionInitialBinBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
-        clearBuffer(completionPosXBuffer!, length: count * MemoryLayout<Float>.stride)
-        clearBuffer(completionPosYBuffer!, length: count * MemoryLayout<Float>.stride)
-        clearBuffer(completionEnergyBuffer!, length: count * MemoryLayout<Float>.stride)
+        if includeCompletions {
+            fillBuffer(completionSpikedBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
+            fillBuffer(completionIDBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
+            fillBuffer(completionBinBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
+            fillBuffer(completionInitialBinBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
+            clearBuffer(completionPosXBuffer!, length: count * MemoryLayout<Float>.stride)
+            clearBuffer(completionPosYBuffer!, length: count * MemoryLayout<Float>.stride)
+            clearBuffer(completionEnergyBuffer!, length: count * MemoryLayout<Float>.stride)
+        }
 
         var stepParams = FlowMetalParams(
             count: UInt32(count),
@@ -905,28 +909,34 @@ final class FlowMetalContext {
             boundaryLoss = 0
         }
 
-        let compID: [Int32] = readArray(from: completionIDBuffer!, count: count)
-        let compBin: [Int32] = readArray(from: completionBinBuffer!, count: count)
-        let compX: [Float] = readArray(from: completionPosXBuffer!, count: count)
-        let compY: [Float] = readArray(from: completionPosYBuffer!, count: count)
-        let compE: [Float] = readArray(from: completionEnergyBuffer!, count: count)
-        let compS: [UInt8] = readArray(from: completionSpikedBuffer!, count: count)
-        let compInit: [Int32] = readArray(from: completionInitialBinBuffer!, count: count)
+        let completions: [GPUCompletion]
+        if includeCompletions {
+            let compID: [Int32] = readArray(from: completionIDBuffer!, count: count)
+            let compBin: [Int32] = readArray(from: completionBinBuffer!, count: count)
+            let compX: [Float] = readArray(from: completionPosXBuffer!, count: count)
+            let compY: [Float] = readArray(from: completionPosYBuffer!, count: count)
+            let compE: [Float] = readArray(from: completionEnergyBuffer!, count: count)
+            let compS: [UInt8] = readArray(from: completionSpikedBuffer!, count: count)
+            let compInit: [Int32] = readArray(from: completionInitialBinBuffer!, count: count)
 
-        var completions: [GPUCompletion] = []
-        completions.reserveCapacity(count)
-        for i in 0..<count {
-            completions.append(
-                GPUCompletion(
-                    particleID: compID[i],
-                    bin: compBin[i],
-                    x: compX[i],
-                    y: compY[i],
-                    energy: compE[i],
-                    spiked: compS[i],
-                    initialBin: compInit[i]
+            var tmp: [GPUCompletion] = []
+            tmp.reserveCapacity(count)
+            for i in 0..<count {
+                tmp.append(
+                    GPUCompletion(
+                        particleID: compID[i],
+                        bin: compBin[i],
+                        x: compX[i],
+                        y: compY[i],
+                        energy: compE[i],
+                        spiked: compS[i],
+                        initialBin: compInit[i]
+                    )
                 )
-            )
+            }
+            completions = tmp
+        } else {
+            completions = []
         }
 
         LoggingHub.endSignpost("flow.learn.run", token: token)

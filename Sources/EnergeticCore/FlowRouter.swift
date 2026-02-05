@@ -46,14 +46,19 @@ public final class FlowRouter {
         return metal.simulate(initial: particles, cfg: cfg, baseSeed: baseSeed, gains: gains)
     }
 
-    /// Learning fast path: runs `steps` on GPU without per-step CPU readback and returns completions + counters.
+    /// Learning fast path: runs `steps` on GPU without per-step CPU readback.
+    ///
+    /// - Important: Setting `includeCompletions` to `false` disables GPU→CPU readback of per-particle completion records.
+    ///   This is safe when you only need aggregated signals/metrics (e.g. `weightedYHat`, scalar losses), but any
+    ///   downstream CPU analysis that needs individual completions must request `includeCompletions: true`.
     public func simulateWithCompletions(
         initial particles: [FlowParticle],
         gains: [Float]? = nil,
         steps: Int,
         initialBins: [Int32]? = nil,
         targetsRaw: [Float]? = nil,
-        aggregator: AggregatorConfig? = nil
+        aggregator: AggregatorConfig? = nil,
+        includeCompletions: Bool = true
     ) -> FlowSimulationSummary {
         return metal.simulateWithCompletions(
             initial: particles,
@@ -63,7 +68,8 @@ public final class FlowRouter {
             steps: steps,
             initialBinsByIndex: initialBins,
             targetsRaw: targetsRaw,
-            aggregator: aggregator
+            aggregator: aggregator,
+            includeCompletions: includeCompletions
         )
     }
 }

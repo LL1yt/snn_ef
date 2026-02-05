@@ -29,6 +29,11 @@ public struct FlowSimulationSummary: Sendable {
     public let spikeCount: UInt32
     public let particleStepCount: UInt32
     public let completionCount: UInt32
+
+    /// Per-particle completion records.
+    ///
+    /// - Note: This array can be empty even when `completionCount > 0` if the caller requested
+    ///   `includeCompletions: false` to avoid GPU→CPU readback.
     public let completions: [GPUCompletion]
 
     /// GPU-reduced scalar metrics for the epoch window.

@@ -285,8 +285,14 @@ public final class FlowLearningLoop {
                 steps: learningConfig.stepsPerEpoch,
                 initialBins: initialBinsByIndex,
                 targetsRaw: wantsWeighted ? targets : nil,
-                aggregator: wantsWeighted ? learningConfig.aggregatorConfig : nil
+                aggregator: wantsWeighted ? learningConfig.aggregatorConfig : nil,
+                // Optimization: completions GPU→CPU readback is only needed for CPU-side aggregation/analysis.
+                // UI tracing uses the slow path (stepWithEvents), so disabling readback here does not affect UI logs.
+                includeCompletions: !wantsWeighted
             )
+            if wantsWeighted {
+                precondition(summary.weightedYHat != nil, "expected weightedYHat when outputSignal=weighted_bins_gpu")
+            }
             gpuWeightedYHat = summary.weightedYHat
             gpuMeanRadialMiss = summary.meanRadialMiss
             gpuBoundaryLoss = summary.boundaryLoss
