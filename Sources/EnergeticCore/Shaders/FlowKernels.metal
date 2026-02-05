@@ -474,3 +474,17 @@ kernel void flow_reduce_hist(
         atomic_fetch_add_explicit(&histogram[gid], sum, memory_order_relaxed);
     }
 }
+
+kernel void flow_finalize_weighted_yhat(
+    device const atomic_float *sumWE [[buffer(0)]],
+    device const atomic_float *sumW [[buffer(1)]],
+    device float *yHat [[buffer(2)]],
+    constant FlowParams &p [[buffer(3)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= p.bins) { return; }
+    const float eps = 1e-8f;
+    float we = atomic_load_explicit(&sumWE[gid], memory_order_relaxed);
+    float w = atomic_load_explicit(&sumW[gid], memory_order_relaxed);
+    yHat[gid] = (w > eps) ? (we / w) : 0.0f;
+}

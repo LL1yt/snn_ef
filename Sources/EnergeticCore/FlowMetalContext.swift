@@ -45,6 +45,7 @@ final class FlowMetalContext {
     private let trainStepPipeline: MTLComputePipelineState
     private let finalPipeline: MTLComputePipelineState
     private let reducePipeline: MTLComputePipelineState
+    private let finalizeWeightedYHatPipeline: MTLComputePipelineState
 
     private var particleCapacity: Int = 0
     private var binsCapacity: Int = 0
@@ -80,6 +81,7 @@ final class FlowMetalContext {
     private var targetsRawBuffer: MTLBuffer?
     private var weightedSumBuffer: MTLBuffer?
     private var weightSumBuffer: MTLBuffer?
+    private var weightedYHatBuffer: MTLBuffer?
     private var groupWeightedSumBuffer: MTLBuffer?
     private var groupWeightSumBuffer: MTLBuffer?
 
@@ -135,8 +137,9 @@ final class FlowMetalContext {
         guard let stepFunction = library.makeFunction(name: "flow_step"),
               let trainStepFunction = library.makeFunction(name: "flow_step_train"),
               let finalFunction = library.makeFunction(name: "flow_project_final"),
-              let reduceFunction = library.makeFunction(name: "flow_reduce_hist") else {
-            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_step_train/flow_project_final/flow_reduce_hist in library"
+              let reduceFunction = library.makeFunction(name: "flow_reduce_hist"),
+              let finalizeFunction = library.makeFunction(name: "flow_finalize_weighted_yhat") else {
+            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_step_train/flow_project_final/flow_reduce_hist/flow_finalize_weighted_yhat in library"
             return nil
         }
         do {
@@ -144,6 +147,7 @@ final class FlowMetalContext {
             self.trainStepPipeline = try device.makeComputePipelineState(function: trainStepFunction)
             self.finalPipeline = try device.makeComputePipelineState(function: finalFunction)
             self.reducePipeline = try device.makeComputePipelineState(function: reduceFunction)
+            self.finalizeWeightedYHatPipeline = try device.makeComputePipelineState(function: finalizeFunction)
         } catch {
             FlowMetalContext.lastInitError = "makeComputePipelineState failed: \(error)"
             return nil
@@ -634,6 +638,7 @@ final class FlowMetalContext {
             writeArray(targetsRaw!, to: targetsRawBuffer!, count: cfg.bins)
             clearBuffer(weightedSumBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
             clearBuffer(weightSumBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+            clearBuffer(weightedYHatBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
             clearBuffer(groupWeightedSumBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
             clearBuffer(groupWeightSumBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
         } else {
@@ -815,7 +820,7 @@ final class FlowMetalContext {
             reduceEnc.endEncoding()
         }
 
-        if wantsWeightedYHat, let weightedSumBuffer, let weightSumBuffer {
+        if wantsWeightedYHat, let weightedSumBuffer, let weightSumBuffer, let weightedYHatBuffer {
             // Reduce weighted sums across step-groupCount
             if let reduceEnc = cmd.makeComputeCommandEncoder() {
                 reduceEnc.setComputePipelineState(reducePipeline)
@@ -842,6 +847,21 @@ final class FlowMetalContext {
                 let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
                 reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
                 reduceEnc.endEncoding()
+            }
+
+            // Finalize yHat on GPU: yHat[b] = sumWE[b] / sumW[b]
+            if let finalizeEnc = cmd.makeComputeCommandEncoder() {
+                finalizeEnc.setComputePipelineState(finalizeWeightedYHatPipeline)
+                finalizeEnc.setBuffer(weightedSumBuffer, offset: 0, index: 0)
+                finalizeEnc.setBuffer(weightSumBuffer, offset: 0, index: 1)
+                finalizeEnc.setBuffer(weightedYHatBuffer, offset: 0, index: 2)
+                var p = stepParams
+                finalizeEnc.setBytes(&p, length: MemoryLayout<FlowMetalParams>.stride, index: 3)
+                let tg = min(finalizeWeightedYHatPipeline.maxTotalThreadsPerThreadgroup, finalizeWeightedYHatPipeline.threadExecutionWidth * 4)
+                let threadsPerThreadgroup = MTLSize(width: max(1, tg), height: 1, depth: 1)
+                let threads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+                finalizeEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
+                finalizeEnc.endEncoding()
             }
         }
 
@@ -882,12 +902,7 @@ final class FlowMetalContext {
 
         let weightedYHat: [Float]?
         if wantsWeightedYHat {
-            let sumWE: [Float] = readArray(from: weightedSumBuffer!, count: cfg.bins)
-            let sumW: [Float] = readArray(from: weightSumBuffer!, count: cfg.bins)
-            let eps: Float = 1e-8
-            weightedYHat = zip(sumWE, sumW).map { (we, w) in
-                w > eps ? (we / w) : 0
-            }
+            weightedYHat = readArray(from: weightedYHatBuffer!, count: cfg.bins)
         } else {
             weightedYHat = nil
         }
@@ -1126,6 +1141,7 @@ final class FlowMetalContext {
             || (targetsRawBuffer == nil)
             || (weightedSumBuffer == nil)
             || (weightSumBuffer == nil)
+            || (weightedYHatBuffer == nil)
         guard needsResize || needsAlloc else { return }
 
         if needsResize {
@@ -1141,6 +1157,7 @@ final class FlowMetalContext {
         targetsRawBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
         weightedSumBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
         weightSumBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        weightedYHatBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
     }
 
     private func ensureGroupHistogramCapacity(groupCount: Int, bins: Int) {
