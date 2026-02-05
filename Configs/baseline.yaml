@@ -69,15 +69,20 @@ router:
     dynamics:
       radial_bias: 0.22
       spike_kick: 0.8
-      gain_spike_kick_scale: 1.0
+      # Reduce gain coupling into dynamics; keep gains primarily for shaping output histogram.
+      gain_spike_kick_scale: 0.0
       noise_std_pos: 0.01
       noise_std_dir: 0.05
       max_speed: 1.0
       energy_alpha: 1.0
-      energy_floor: 1.0e-7
-      energy_spike_gain: 6.0
-      energy_gain_bias: 0.5
-      energy_cap: 1024.0
+      # Wide but safe: avoid premature death, but still keep a floor for stability.
+      energy_floor: 1.0e-9
+      # Wide but safe: keep bounded energy injection.
+      energy_spike_gain: 1.0
+      # Disable per-step energy bias from gains to avoid feedback explosions.
+      energy_gain_bias: 0.0
+      # Wide but safe ceiling.
+      energy_cap: 8192.0
     interactions:
       enabled: false
       type: "none"
@@ -95,7 +100,8 @@ router:
       log_silence: true
       log_every: 100
       log_every_ui: 300
-      output_signal: "weighted_bins_gpu"
+      # FlowLearningLoop now uses summed histogram bins as prediction; output_signal is currently informational.
+      output_signal: "completion_cpu"
       dataset:
         name: "logiqa"
         local_path: "Artifacts/Datasets/LogiQA/prepared/prepared_train.jsonl"
@@ -110,7 +116,8 @@ router:
         weight: 0.4
         margin: 0.5
       lr:
-        gain: 0.02
+        # Smaller gain LR: reduce oscillations; learning still happens via normalized histogram shape.
+        gain: 0.005
         lif: 0.02
         dynamics: 0.003
       gain_error_power: 1.5
@@ -122,7 +129,8 @@ router:
         theta: [0.5, 1.0]
         radial_bias: [0.0, 0.5]
         spike_kick: [0.0, 1.0]
-        gain: [0.01, 32.0]
+        # Wide but safe; keeps gain influence bounded and near 1.
+        gain: [0.25, 4.0]
       aggregator:
         sigma_r: 2.5
         sigma_e: 120.0
