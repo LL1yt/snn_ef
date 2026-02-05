@@ -178,7 +178,7 @@ struct EnergeticCLI {
             let trainPath = datasetPath ?? datasetConfig.localPath
             if !FileManager.default.fileExists(atPath: trainPath) {
                 Diagnostics.fail(
-                    "Dataset not found at \(trainPath). Run Tools/logiqa_prepare.swift or specify --dataset PATH.",
+                    "Dataset not found at \(trainPath). Run Tools/logiqa_prepare.swift or Tools/ethics_prepare.py, or specify --dataset PATH.",
                     processID: processID
                 )
             }
@@ -244,6 +244,15 @@ struct EnergeticCLI {
             validCache = buildCache(samples: validSamples, capsuleConfig: snapshot.root.capsule, bins: flowCfg.bins, processID: processID)
         }
 
+        // Reuse a single eval loop to avoid recreating Metal context on each evaluation
+        let evalLoop: FlowLearningLoop? = validSamples.isEmpty
+            ? nil
+            : FlowLearningLoop(
+                flowConfig: flowCfg,
+                learningConfig: learningCfg,
+                seed: UInt64(snapshot.root.seed) &+ 0xE1A1_0001
+            )
+
         for epoch in startEpoch..<epochs {
             let pair = makeTrainingPair(
                 index: epoch,
@@ -293,15 +302,18 @@ struct EnergeticCLI {
             }
 
             if !validSamples.isEmpty && ((epoch + 1) % evalEvery == 0 || epoch == epochs - 1) {
+                guard let evalLoop else {
+                    continue
+                }
                 let evalMetrics = evaluateSamples(
                     epoch: epoch,
                     samples: validSamples,
-                    flowConfig: flowCfg,
-                    learningConfig: learningCfg,
+                    evalLoop: evalLoop,
                     capsuleConfig: snapshot.root.capsule,
                     bins: flowCfg.bins,
                     processID: processID,
-                    cache: &validCache
+                    cache: &validCache,
+                    currentParams: learningLoop.getParameters()
                 )
                 LoggingHub.emit(
                     process: "trainer.eval",
@@ -467,14 +479,15 @@ struct EnergeticCLI {
     private static func evaluateSamples(
         epoch: Int,
         samples: [LogiQASample],
-        flowConfig: FlowConfig,
-        learningConfig: LearningConfig,
+        evalLoop: FlowLearningLoop,
         capsuleConfig: ConfigRoot.Capsule,
         bins: Int,
         processID: String,
-        cache: inout [String: EncodedSample]
+        cache: inout [String: EncodedSample],
+        currentParams: LearnableParameters
     ) -> LearningMetrics {
-        let evalLoop = FlowLearningLoop(flowConfig: flowConfig, learningConfig: learningConfig, seed: UInt64(epoch &+ 1000))
+        evalLoop.loadParameters(currentParams)
+
         var totalLoss: Float = 0
         var binLoss: Float = 0
         var negLoss: Float = 0

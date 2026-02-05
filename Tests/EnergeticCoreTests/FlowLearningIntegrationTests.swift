@@ -2,6 +2,63 @@ import XCTest
 @testable import EnergeticCore
 
 final class FlowLearningIntegrationTests: XCTestCase {
+    func testFastPathParityWithSlowPath() {
+        let flowCfg = FlowConfig(
+            T: 12,
+            radius: 10.0,
+            bins: 8,
+            seedLayout: "ring",
+            seedRadius: 1.0,
+            finalWeightPower: 1.0,
+            lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
+            dynamics: .init(radialBias: 0.15, spikeKick: 0.5, gainSpikeKickScale: 0.0, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5, energySpikeGain: 0.0, energyGainBias: 0.0, energyCap: 0.0)
+        )
+
+        let learningCfg = LearningConfig(
+            enabled: true,
+            epochs: 1,
+            stepsPerEpoch: 12,
+            targetSpikeRate: 0.2,
+            logEvery: 1,
+            logEveryUI: 1,
+            learningRates: .init(gain: 0.0, lif: 0.0, dynamics: 0.0),
+            lossWeights: .init(spike: 0.1, boundary: 0.05),
+            bounds: .init(
+                theta: (0.5, 1.0),
+                radialBias: (0.0, 0.5),
+                spikeKick: (0.0, 1.0),
+                gain: (0.1, 2.0)
+            ),
+            aggregatorConfig: AggregatorConfig(
+                sigmaR: 2.5,
+                sigmaE: 5.0,
+                alpha: 1.0,
+                beta: 1.0,
+                gamma: 0.5,
+                tau: 1.0,
+                radius: 10.0
+            )
+        )
+
+        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
+
+        let seed: UInt64 = 4242
+        let loopSlow = FlowLearningLoop(flowConfig: flowCfg, learningConfig: learningCfg, seed: seed)
+        let loopFast = FlowLearningLoop(flowConfig: flowCfg, learningConfig: learningCfg, seed: seed)
+
+        // Slow path is triggered when emitLog=true (epoch 0, logEveryUI=1)
+        let slow = loopSlow.runEpoch(epoch: 0, energies: energies, targets: targets, applyUpdates: false, emitLog: true)
+        // Fast path is triggered when emitLog=false
+        let fast = loopFast.runEpoch(epoch: 0, energies: energies, targets: targets, applyUpdates: false, emitLog: false)
+
+        XCTAssertEqual(slow.spikeRate, fast.spikeRate, accuracy: 1e-4)
+        XCTAssertEqual(slow.completionRate, fast.completionRate, accuracy: 1e-4)
+        XCTAssertEqual(slow.meanRadialMiss, fast.meanRadialMiss, accuracy: 1e-3)
+        XCTAssertEqual(slow.binLoss, fast.binLoss, accuracy: 1e-3)
+        XCTAssertEqual(slow.negativeLoss, fast.negativeLoss, accuracy: 1e-5)
+    }
+
     func testLearningLoopConvergence() {
         // Setup simple flow config
         let flowCfg = FlowConfig(

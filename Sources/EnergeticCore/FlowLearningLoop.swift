@@ -181,76 +181,110 @@ public final class FlowLearningLoop {
         )
         precondition(params.gains.count == flowConfig.bins, "gains count must match bins")
 
-        // Run simulation with event tracking
-        var state = FlowState(step: 0, particles: seeds, bins: flowConfig.bins)
-        var allCompletions: [CompletionEvent] = []
-        var totalSpikes = 0
-        var totalParticleSteps = 0
-        let initialParticleCount = seeds.count
-        let trackedIDs = Array(seeds.prefix(3).map { $0.id })
-        var traceSteps: [Int: [TraceStep]] = [:]
-        var pathPoints: [Int: [PathPoint]] = [:]
-        for id in trackedIDs { traceSteps[id] = [] }
-        for id in trackedIDs { pathPoints[id] = [] }
+        // Decide whether we need slow path (per-step events/traces) for UI payload
+        let needsUILog = emitLog && (epoch % max(1, learningConfig.logEveryUI) == 0)
 
-        // Store initial bin indices for alignment weight
-        var initialBins: [Int: Int] = [:]
+        var allCompletions: [CompletionEvent] = []
+        var totalSpikes: UInt32 = 0
+        var totalParticleSteps: UInt32 = 0
+        let initialParticleCount = seeds.count
+
+        // Initial bins for alignment weight (dense by seed index; store -1 when unknown)
+        var initialBinsByIndex = [Int32](repeating: -1, count: seeds.count)
+        var initialBinsByID: [Int: Int] = [:]
+        initialBinsByID.reserveCapacity(seeds.count)
         for (idx, seed) in seeds.enumerated() {
             let theta = atan2(seed.pos.y, seed.pos.x)
             let binIdx = FlowProjector.binIndex(theta: theta, bins: flowConfig.bins)
-            initialBins[seed.id] = binIdx
+            initialBinsByIndex[idx] = Int32(binIdx)
+            initialBinsByID[seed.id] = binIdx
         }
 
-        for step in 0..<learningConfig.stepsPerEpoch {
-            guard !state.isEmpty else { break }
+        // Slow path: per-step events + trace collection (UI only)
+        let trackedIDs = Array(seeds.prefix(3).map { $0.id })
+        var traceSteps: [Int: [TraceStep]] = [:]
+        var pathPoints: [Int: [PathPoint]] = [:]
+        if needsUILog {
+            for id in trackedIDs { traceSteps[id] = [] }
+            for id in trackedIDs { pathPoints[id] = [] }
 
-            let events = router.stepWithEvents(state: &state, gains: params.gains)
+            var state = FlowState(step: 0, particles: seeds, bins: flowConfig.bins)
+            for step in 0..<learningConfig.stepsPerEpoch {
+                guard !state.isEmpty else { break }
 
-            for event in events {
-                totalParticleSteps += 1
-                if event.spiked {
-                    totalSpikes += 1
+                let events = router.stepWithEvents(state: &state, gains: params.gains)
+                for event in events {
+                    totalParticleSteps &+= 1
+                    if event.spiked {
+                        totalSpikes &+= 1
+                    }
+                    if traceSteps[event.id] != nil {
+                        let r = length(event.pos)
+                        let theta = atan2(event.pos.y, event.pos.x)
+                        let speed = length(event.vel)
+                        let dir = normalizeOrZero(event.pos)
+                        let radialSpeed = (dir.x * event.vel.x) + (dir.y * event.vel.y)
+                        let stepInfo = TraceStep(
+                            t: step,
+                            r: r,
+                            theta: theta,
+                            energy: event.energy,
+                            V: event.V,
+                            spiked: event.spiked,
+                            bin: event.projectedBin,
+                            speed: speed,
+                            radialSpeed: radialSpeed
+                        )
+                        traceSteps[event.id]?.append(stepInfo)
+                        let point = PathPoint(
+                            t: step,
+                            x: event.pos.x,
+                            y: event.pos.y,
+                            spiked: event.spiked,
+                            bin: event.projectedBin,
+                            speed: speed,
+                            radialSpeed: radialSpeed
+                        )
+                        pathPoints[event.id]?.append(point)
+                    }
+                    if let bin = event.projectedBin {
+                        let completion = CompletionEvent(
+                            particleID: event.id,
+                            binIndex: bin,
+                            position: event.pos,
+                            energy: event.energy,
+                            spiked: event.spiked,
+                            initialBinIndex: initialBinsByID[event.id]
+                        )
+                        allCompletions.append(completion)
+                    }
                 }
-                if traceSteps[event.id] != nil {
-                    let r = length(event.pos)
-                    let theta = atan2(event.pos.y, event.pos.x)
-                    let speed = length(event.vel)
-                    let dir = normalizeOrZero(event.pos)
-                    let radialSpeed = (dir.x * event.vel.x) + (dir.y * event.vel.y)
-                    let stepInfo = TraceStep(
-                        t: step,
-                        r: r,
-                        theta: theta,
-                        energy: event.energy,
-                        V: event.V,
-                        spiked: event.spiked,
-                        bin: event.projectedBin,
-                        speed: speed,
-                        radialSpeed: radialSpeed
+            }
+        } else {
+            // Fast path: one GPU-run with completions + counters
+            let summary = router.simulateWithCompletions(
+                initial: seeds,
+                gains: params.gains,
+                steps: learningConfig.stepsPerEpoch,
+                initialBins: initialBinsByIndex
+            )
+            totalSpikes = summary.spikeCount
+            totalParticleSteps = summary.particleStepCount
+
+            allCompletions.reserveCapacity(Int(summary.completionCount))
+            for comp in summary.completions {
+                guard comp.bin >= 0 else { continue }
+                let initialBin = comp.initialBin >= 0 ? Int(comp.initialBin) : nil
+                allCompletions.append(
+                    CompletionEvent(
+                        particleID: Int(comp.particleID),
+                        binIndex: Int(comp.bin),
+                        position: SIMD2<Float>(comp.x, comp.y),
+                        energy: comp.energy,
+                        spiked: comp.spiked != 0,
+                        initialBinIndex: initialBin
                     )
-                    traceSteps[event.id]?.append(stepInfo)
-                    let point = PathPoint(
-                        t: step,
-                        x: event.pos.x,
-                        y: event.pos.y,
-                        spiked: event.spiked,
-                        bin: event.projectedBin,
-                        speed: speed,
-                        radialSpeed: radialSpeed
-                    )
-                    pathPoints[event.id]?.append(point)
-                }
-                if let bin = event.projectedBin {
-                    let completion = CompletionEvent(
-                        particleID: event.id,
-                        binIndex: bin,
-                        position: event.pos,
-                        energy: event.energy,
-                        spiked: event.spiked,
-                        initialBinIndex: initialBins[event.id]
-                    )
-                    allCompletions.append(completion)
-                }
+                )
             }
         }
 
@@ -398,7 +432,7 @@ public final class FlowLearningLoop {
         )
 
 #if canImport(SharedInfrastructure)
-        if emitLog && (epoch % max(1, learningConfig.logEveryUI) == 0) {
+        if needsUILog {
             let traces = trackedIDs.compactMap { id -> LearningLogPayload.Trace? in
                 guard let steps = traceSteps[id] else { return nil }
                 return LearningLogPayload.Trace(id: id, steps: steps)

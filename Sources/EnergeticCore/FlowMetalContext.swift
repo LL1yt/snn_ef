@@ -33,6 +33,7 @@ final class FlowMetalContext {
     let device: MTLDevice
     private let queue: MTLCommandQueue
     private let stepPipeline: MTLComputePipelineState
+    private let trainStepPipeline: MTLComputePipelineState
     private let finalPipeline: MTLComputePipelineState
     private let reducePipeline: MTLComputePipelineState
 
@@ -54,6 +55,23 @@ final class FlowMetalContext {
     private var projectedBinBuffer: MTLBuffer?
     private var spikedBuffer: MTLBuffer?
     private var aliveBuffer: MTLBuffer?
+
+    // Buffers used by simulateWithCompletions fast path
+    private var initialBinByIndexBuffer: MTLBuffer?
+    private var completionWrittenBuffer: MTLBuffer?
+    private var completionIDBuffer: MTLBuffer?
+    private var completionBinBuffer: MTLBuffer?
+    private var completionPosXBuffer: MTLBuffer?
+    private var completionPosYBuffer: MTLBuffer?
+    private var completionEnergyBuffer: MTLBuffer?
+    private var completionSpikedBuffer: MTLBuffer?
+    private var completionInitialBinBuffer: MTLBuffer?
+
+    private var groupSpikeCountBuffer: MTLBuffer?
+    private var groupStepCountBuffer: MTLBuffer?
+    private var groupCompletionCountBuffer: MTLBuffer?
+
+    private var groupCounterCapacity: Int = 0
 
     init?() {
         FlowMetalContext.lastInitError = nil
@@ -93,13 +111,15 @@ final class FlowMetalContext {
             return nil
         }
         guard let stepFunction = library.makeFunction(name: "flow_step"),
+              let trainStepFunction = library.makeFunction(name: "flow_step_train"),
               let finalFunction = library.makeFunction(name: "flow_project_final"),
               let reduceFunction = library.makeFunction(name: "flow_reduce_hist") else {
-            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_project_final/flow_reduce_hist in library"
+            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_step_train/flow_project_final/flow_reduce_hist in library"
             return nil
         }
         do {
             self.stepPipeline = try device.makeComputePipelineState(function: stepFunction)
+            self.trainStepPipeline = try device.makeComputePipelineState(function: trainStepFunction)
             self.finalPipeline = try device.makeComputePipelineState(function: finalFunction)
             self.reducePipeline = try device.makeComputePipelineState(function: reduceFunction)
         } catch {
@@ -464,6 +484,289 @@ final class FlowMetalContext {
         return outputs
     }
 
+    func simulateWithCompletions(
+        initial particles: [FlowParticle],
+        cfg: FlowConfig,
+        baseSeed: UInt32,
+        gains: [Float]?,
+        steps: Int,
+        initialBinsByIndex: [Int32]?
+    ) -> FlowSimulationSummary {
+        let token = LoggingHub.beginSignpost("flow.learn.run")
+        let count = particles.count
+        guard count > 0 else {
+            LoggingHub.endSignpost("flow.learn.run", token: token)
+            return FlowSimulationSummary(
+                bins: [Float](repeating: 0, count: cfg.bins),
+                spikeCount: 0,
+                particleStepCount: 0,
+                completionCount: 0,
+                completions: []
+            )
+        }
+
+        ensureParticleCapacity(count)
+        ensureBinsCapacity(cfg.bins)
+
+        var ids32: [Int32] = []
+        var posX: [Float] = []
+        var posY: [Float] = []
+        var velX: [Float] = []
+        var velY: [Float] = []
+        var energy: [Float] = []
+        var v: [Float] = []
+        ids32.reserveCapacity(count)
+        posX.reserveCapacity(count)
+        posY.reserveCapacity(count)
+        velX.reserveCapacity(count)
+        velY.reserveCapacity(count)
+        energy.reserveCapacity(count)
+        v.reserveCapacity(count)
+
+        for p in particles {
+            ids32.append(Int32(p.id))
+            posX.append(p.pos.x)
+            posY.append(p.pos.y)
+            velX.append(p.vel.x)
+            velY.append(p.vel.y)
+            energy.append(p.energy)
+            v.append(p.V)
+        }
+
+        writeArray(ids32, to: idsBuffer!, count: count)
+        writeArray(posX, to: posXBuffer!, count: count)
+        writeArray(posY, to: posYBuffer!, count: count)
+        writeArray(velX, to: velXBuffer!, count: count)
+        writeArray(velY, to: velYBuffer!, count: count)
+        writeArray(energy, to: energyBuffer!, count: count)
+        writeArray(v, to: vBuffer!, count: count)
+
+        clearBuffer(histogramBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+        fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
+
+        // Step threadgroup sizing (used for group id mapping in flow_step_train)
+        let stepTG = min(trainStepPipeline.maxTotalThreadsPerThreadgroup, trainStepPipeline.threadExecutionWidth * 4)
+        let stepThreadsPerGroup = max(1, stepTG)
+        let stepGroupCount = (count + stepThreadsPerGroup - 1) / stepThreadsPerGroup
+        ensureGroupCounterCapacity(stepGroupCount)
+        fillBuffer(groupSpikeCountBuffer!, value: 0, length: stepGroupCount * MemoryLayout<UInt32>.stride)
+        fillBuffer(groupStepCountBuffer!, value: 0, length: stepGroupCount * MemoryLayout<UInt32>.stride)
+        fillBuffer(groupCompletionCountBuffer!, value: 0, length: stepGroupCount * MemoryLayout<UInt32>.stride)
+
+        // Final threadgroup sizing (used only for final projection -> groupHistogram)
+        let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
+        let finalThreadsPerGroup = max(1, finalTG)
+        let finalGroupCount = (count + finalThreadsPerGroup - 1) / finalThreadsPerGroup
+        let maxGroupCount = max(stepGroupCount, finalGroupCount)
+        ensureGroupHistogramCapacity(groupCount: maxGroupCount, bins: cfg.bins)
+        clearBuffer(groupHistogramBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
+
+        // Gains
+        var gainsCount: UInt32 = 0
+        if let gains, gains.count == cfg.bins {
+            gainsCount = UInt32(gains.count)
+            writeArray(gains, to: gainsBuffer!, count: gains.count)
+        } else {
+            let one: [Float] = [1.0]
+            writeArray(one, to: gainsBuffer!, count: 1)
+        }
+
+        // Initial bins (always provided; -1 when unknown)
+        if let initialBinsByIndex, initialBinsByIndex.count == count {
+            writeArray(initialBinsByIndex, to: initialBinByIndexBuffer!, count: count)
+        } else {
+            let fallback = [Int32](repeating: -1, count: count)
+            writeArray(fallback, to: initialBinByIndexBuffer!, count: count)
+        }
+
+        // Completion buffers init
+        fillBuffer(completionWrittenBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
+        fillBuffer(completionSpikedBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
+        fillBuffer(completionIDBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
+        fillBuffer(completionBinBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
+        fillBuffer(completionInitialBinBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
+        clearBuffer(completionPosXBuffer!, length: count * MemoryLayout<Float>.stride)
+        clearBuffer(completionPosYBuffer!, length: count * MemoryLayout<Float>.stride)
+        clearBuffer(completionEnergyBuffer!, length: count * MemoryLayout<Float>.stride)
+
+        var stepParams = FlowMetalParams(
+            count: UInt32(count),
+            bins: UInt32(cfg.bins),
+            step: 0,
+            baseSeed: baseSeed,
+            radius: cfg.radius,
+            lifDecay: cfg.lif.decay,
+            lifThreshold: cfg.lif.threshold,
+            lifReset: cfg.lif.resetValue,
+            radialBias: cfg.dynamics.radialBias,
+            spikeKick: cfg.dynamics.spikeKick,
+            gainSpikeKickScale: cfg.dynamics.gainSpikeKickScale,
+            noiseStdPos: cfg.dynamics.noiseStdPos,
+            noiseStdDir: cfg.dynamics.noiseStdDir,
+            maxSpeed: cfg.dynamics.maxSpeed,
+            energyAlpha: cfg.dynamics.energyAlpha,
+            energyFloor: cfg.dynamics.energyFloor,
+            energySpikeGain: cfg.dynamics.energySpikeGain,
+            energyGainBias: cfg.dynamics.energyGainBias,
+            energyCap: cfg.dynamics.energyCap,
+            finalWeightPower: cfg.finalWeightPower,
+            gainsCount: gainsCount,
+            threadsPerGroup: UInt32(stepThreadsPerGroup),
+            groupCount: UInt32(stepGroupCount)
+        )
+
+        guard let cmd = queue.makeCommandBuffer(),
+              let stepEnc = cmd.makeComputeCommandEncoder() else {
+            LoggingHub.endSignpost("flow.learn.run", token: token)
+            return FlowSimulationSummary(
+                bins: [Float](repeating: 0, count: cfg.bins),
+                spikeCount: 0,
+                particleStepCount: 0,
+                completionCount: 0,
+                completions: []
+            )
+        }
+
+        // Step phase
+        stepEnc.setComputePipelineState(trainStepPipeline)
+        stepEnc.setBuffer(idsBuffer, offset: 0, index: 0)
+        stepEnc.setBuffer(posXBuffer, offset: 0, index: 1)
+        stepEnc.setBuffer(posYBuffer, offset: 0, index: 2)
+        stepEnc.setBuffer(velXBuffer, offset: 0, index: 3)
+        stepEnc.setBuffer(velYBuffer, offset: 0, index: 4)
+        stepEnc.setBuffer(energyBuffer, offset: 0, index: 5)
+        stepEnc.setBuffer(vBuffer, offset: 0, index: 6)
+        stepEnc.setBuffer(histogramBuffer, offset: 0, index: 7)
+        stepEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 8)
+        stepEnc.setBuffer(aliveBuffer, offset: 0, index: 9)
+        stepEnc.setBuffer(gainsBuffer, offset: 0, index: 10)
+        stepEnc.setBuffer(initialBinByIndexBuffer, offset: 0, index: 11)
+        stepEnc.setBuffer(completionWrittenBuffer, offset: 0, index: 12)
+        stepEnc.setBuffer(completionIDBuffer, offset: 0, index: 13)
+        stepEnc.setBuffer(completionBinBuffer, offset: 0, index: 14)
+        stepEnc.setBuffer(completionPosXBuffer, offset: 0, index: 15)
+        stepEnc.setBuffer(completionPosYBuffer, offset: 0, index: 16)
+        stepEnc.setBuffer(completionEnergyBuffer, offset: 0, index: 17)
+        stepEnc.setBuffer(completionSpikedBuffer, offset: 0, index: 18)
+        stepEnc.setBuffer(completionInitialBinBuffer, offset: 0, index: 19)
+        stepEnc.setBuffer(groupSpikeCountBuffer, offset: 0, index: 20)
+        stepEnc.setBuffer(groupStepCountBuffer, offset: 0, index: 21)
+        stepEnc.setBuffer(groupCompletionCountBuffer, offset: 0, index: 22)
+
+        let threadsPerThreadgroup = MTLSize(width: max(1, stepTG), height: 1, depth: 1)
+        let threads = MTLSize(width: count, height: 1, depth: 1)
+        for s in 0..<max(0, steps) {
+            stepParams.step = UInt32(s)
+            var paramsCopy = stepParams
+            stepEnc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 23)
+            stepEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
+        }
+        stepEnc.endEncoding()
+
+        // Final projection phase (alive-only)
+        let finalParams = FlowMetalParams(
+            count: UInt32(count),
+            bins: UInt32(cfg.bins),
+            step: UInt32(steps),
+            baseSeed: 0,
+            radius: cfg.radius,
+            lifDecay: 0,
+            lifThreshold: 0,
+            lifReset: 0,
+            radialBias: 0,
+            spikeKick: 0,
+            gainSpikeKickScale: 0,
+            noiseStdPos: 0,
+            noiseStdDir: 0,
+            maxSpeed: 0,
+            energyAlpha: 0,
+            energyFloor: 0,
+            energySpikeGain: 0,
+            energyGainBias: 0,
+            energyCap: 0,
+            finalWeightPower: cfg.finalWeightPower,
+            gainsCount: gainsCount,
+            threadsPerGroup: UInt32(finalThreadsPerGroup),
+            groupCount: UInt32(finalGroupCount)
+        )
+
+        if let finalEnc = cmd.makeComputeCommandEncoder() {
+            finalEnc.setComputePipelineState(finalPipeline)
+            finalEnc.setBuffer(posXBuffer, offset: 0, index: 0)
+            finalEnc.setBuffer(posYBuffer, offset: 0, index: 1)
+            finalEnc.setBuffer(energyBuffer, offset: 0, index: 2)
+            finalEnc.setBuffer(histogramBuffer, offset: 0, index: 3)
+            finalEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 4)
+            finalEnc.setBuffer(aliveBuffer, offset: 0, index: 5)
+            finalEnc.setBuffer(gainsBuffer, offset: 0, index: 6)
+            var finalCopy = finalParams
+            finalEnc.setBytes(&finalCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 7)
+            let finalThreadsPerThreadgroup = MTLSize(width: max(1, finalTG), height: 1, depth: 1)
+            finalEnc.dispatchThreads(threads, threadsPerThreadgroup: finalThreadsPerThreadgroup)
+            finalEnc.endEncoding()
+        }
+
+        // Reduce histogram (sum across maxGroupCount)
+        if let reduceEnc = cmd.makeComputeCommandEncoder() {
+            reduceEnc.setComputePipelineState(reducePipeline)
+            reduceEnc.setBuffer(histogramBuffer, offset: 0, index: 0)
+            reduceEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 1)
+            var reduceParams = finalParams
+            reduceParams.groupCount = UInt32(maxGroupCount)
+            reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+            let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+            let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+            let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+            reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+            reduceEnc.endEncoding()
+        }
+
+        cmd.commit()
+        cmd.waitUntilCompleted()
+
+        let bins: [Float] = readArray(from: histogramBuffer!, count: cfg.bins)
+
+        let groupSpikes: [UInt32] = readArray(from: groupSpikeCountBuffer!, count: stepGroupCount)
+        let groupSteps: [UInt32] = readArray(from: groupStepCountBuffer!, count: stepGroupCount)
+        let groupCompletions: [UInt32] = readArray(from: groupCompletionCountBuffer!, count: stepGroupCount)
+        let spikeCount = groupSpikes.reduce(0, &+)
+        let particleStepCount = groupSteps.reduce(0, &+)
+        let completionCount = groupCompletions.reduce(0, &+)
+
+        let compID: [Int32] = readArray(from: completionIDBuffer!, count: count)
+        let compBin: [Int32] = readArray(from: completionBinBuffer!, count: count)
+        let compX: [Float] = readArray(from: completionPosXBuffer!, count: count)
+        let compY: [Float] = readArray(from: completionPosYBuffer!, count: count)
+        let compE: [Float] = readArray(from: completionEnergyBuffer!, count: count)
+        let compS: [UInt8] = readArray(from: completionSpikedBuffer!, count: count)
+        let compInit: [Int32] = readArray(from: completionInitialBinBuffer!, count: count)
+
+        var completions: [GPUCompletion] = []
+        completions.reserveCapacity(count)
+        for i in 0..<count {
+            completions.append(
+                GPUCompletion(
+                    particleID: compID[i],
+                    bin: compBin[i],
+                    x: compX[i],
+                    y: compY[i],
+                    energy: compE[i],
+                    spiked: compS[i],
+                    initialBin: compInit[i]
+                )
+            )
+        }
+
+        LoggingHub.endSignpost("flow.learn.run", token: token)
+        return FlowSimulationSummary(
+            bins: bins,
+            spikeCount: spikeCount,
+            particleStepCount: particleStepCount,
+            completionCount: completionCount,
+            completions: completions
+        )
+    }
+
     func projectFinal(
         state: inout FlowState,
         cfg: FlowConfig,
@@ -578,6 +881,17 @@ final class FlowMetalContext {
         projectedBinBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Int32>.stride, options: .storageModeShared)
         spikedBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<UInt8>.stride, options: .storageModeShared)
         aliveBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<UInt8>.stride, options: .storageModeShared)
+
+        // simulateWithCompletions
+        initialBinByIndexBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Int32>.stride, options: .storageModeShared)
+        completionWrittenBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<UInt8>.stride, options: .storageModeShared)
+        completionIDBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Int32>.stride, options: .storageModeShared)
+        completionBinBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Int32>.stride, options: .storageModeShared)
+        completionPosXBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        completionPosYBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        completionEnergyBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        completionSpikedBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<UInt8>.stride, options: .storageModeShared)
+        completionInitialBinBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Int32>.stride, options: .storageModeShared)
     }
 
     private func ensureBinsCapacity(_ bins: Int) {
@@ -597,6 +911,14 @@ final class FlowMetalContext {
             let length = groupHistogramCapacityGroups * groupHistogramCapacityBins * MemoryLayout<Float>.stride
             groupHistogramBuffer = device.makeBuffer(length: length, options: .storageModeShared)
         }
+    }
+
+    private func ensureGroupCounterCapacity(_ groupCount: Int) {
+        guard groupCount > groupCounterCapacity else { return }
+        groupCounterCapacity = max(groupCount, groupCounterCapacity * 2, 1)
+        groupSpikeCountBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<UInt32>.stride, options: .storageModeShared)
+        groupStepCountBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<UInt32>.stride, options: .storageModeShared)
+        groupCompletionCountBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<UInt32>.stride, options: .storageModeShared)
     }
 
     private func writeArray<T>(_ array: [T], to buffer: MTLBuffer, count: Int) {

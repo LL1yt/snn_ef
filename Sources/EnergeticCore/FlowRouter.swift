@@ -45,4 +45,21 @@ public final class FlowRouter {
     public func run(initial particles: [FlowParticle], gains: [Float]? = nil) -> [Float] {
         return metal.simulate(initial: particles, cfg: cfg, baseSeed: baseSeed, gains: gains)
     }
+
+    /// Learning fast path: runs `steps` on GPU without per-step CPU readback and returns completions + counters.
+    public func simulateWithCompletions(
+        initial particles: [FlowParticle],
+        gains: [Float]? = nil,
+        steps: Int,
+        initialBins: [Int32]? = nil
+    ) -> FlowSimulationSummary {
+        return metal.simulateWithCompletions(
+            initial: particles,
+            cfg: cfg,
+            baseSeed: baseSeed,
+            gains: gains,
+            steps: steps,
+            initialBinsByIndex: initialBins
+        )
+    }
 }
