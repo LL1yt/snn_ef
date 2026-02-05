@@ -273,6 +273,10 @@ struct EnergeticCLI {
                 seed: UInt64(snapshot.root.seed) &+ 0xE1A1_0001
             )
 
+        // UI learning payloads (and the slow-path tracing they require) are only useful when UI is enabled.
+        // When UI is disabled/headless, keep training on the fast path.
+        let emitUILogs = snapshot.root.ui.enabled && !snapshot.root.ui.headlessOverride
+
         for epoch in startEpoch..<epochs {
             let pair = makeTrainingPair(
                 index: epoch,
@@ -292,7 +296,8 @@ struct EnergeticCLI {
                 optionTargets: pair.optionTargets,
                 correctIndex: pair.correctIndex,
                 inputText: pair.inputText,
-                answerText: pair.answerText
+                answerText: pair.answerText,
+                emitLog: emitUILogs
             )
             allMetrics.append(metrics)
 

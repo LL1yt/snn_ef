@@ -42,9 +42,12 @@ struct EnergeticVisualizationDemoApp: App {
             if loadError == nil || snapshot != nil {
                 if let cfgSnap = snapshot {
                     VStack(spacing: 16) {
-                        LearningMetricsView(logFileURL: LearningLogSource.resolveLogFileURL(from: cfgSnap))
-                            .frame(minWidth: 1100, minHeight: 520)
-                            .padding(.horizontal)
+                        LearningMetricsView(
+                            logFileURL: LearningLogSource.resolveLogFileURL(from: cfgSnap),
+                            capsuleConfig: cfgSnap.root.capsule
+                        )
+                        .frame(minHeight: 520)
+                        .padding(.horizontal)
                     }
                 } else {
                     FailureView(error: loadError)

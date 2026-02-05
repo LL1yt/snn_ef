@@ -23,7 +23,7 @@ public enum CheckpointManager {
 
         // Encode to JSON
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
 
         let data = try encoder.encode(state)
@@ -75,7 +75,7 @@ public enum CheckpointManager {
 
         // Encode to JSON
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
 
         let data = try encoder.encode(metrics)
         try data.write(to: fileURL)

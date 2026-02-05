@@ -10,49 +10,120 @@ public struct LogiQASample: Sendable, Decodable {
 
 public enum LogiQADatasetLoader {
     public static func loadJSONL(from path: String, limit: Int = 0, shuffle: Bool = false, seed: UInt64 = 42) throws -> [LogiQASample] {
-        let url = URL(fileURLWithPath: path)
-        let data = try Data(contentsOf: url)
-        guard let text = String(data: data, encoding: .utf8) else { return [] }
-        let decoder = JSONDecoder()
-        var items: [LogiQASample] = []
-        items.reserveCapacity(256)
-        for line in text.split(separator: "\n") {
-            if line.isEmpty { continue }
-            if let record = try? decoder.decode(LogiQASample.self, from: Data(line.utf8)) {
-                items.append(record)
-            }
-        }
-        if shuffle {
-            var rng = LCG(seed: seed)
-            for i in stride(from: items.count - 1, through: 1, by: -1) {
-                let j = rng.nextInt(upperBound: i + 1)
-                if i != j { items.swapAt(i, j) }
-            }
-        }
-        if limit > 0 && items.count > limit {
-            items = Array(items.prefix(limit))
-        }
-        return items
+        return try loadJSONL(from: [path], limit: limit, shuffle: shuffle, seed: seed)
     }
 
     public static func loadJSONL(from paths: [String], limit: Int = 0, shuffle: Bool = false, seed: UInt64 = 42) throws -> [LogiQASample] {
-        var items: [LogiQASample] = []
-        items.reserveCapacity(256)
-        for path in paths {
-            let chunk = try loadJSONL(from: path, limit: 0, shuffle: false, seed: seed)
-            items.append(contentsOf: chunk)
+        let urls = paths.map { URL(fileURLWithPath: $0) }
+        let decoder = JSONDecoder()
+
+        // Fast paths
+        if !shuffle {
+            var items: [LogiQASample] = []
+            items.reserveCapacity(limit > 0 ? limit : 256)
+            do {
+                try forEachJSONLLine(urls: urls) { lineData in
+                    if let record = try? decoder.decode(LogiQASample.self, from: lineData) {
+                        items.append(record)
+                    }
+                    if limit > 0 && items.count >= limit {
+                        throw StopIteration()
+                    }
+                }
+            } catch is StopIteration {
+                // Expected early stop.
+            }
+            return items
         }
-        if shuffle {
-            var rng = LCG(seed: seed)
-            for i in stride(from: items.count - 1, through: 1, by: -1) {
-                let j = rng.nextInt(upperBound: i + 1)
-                if i != j { items.swapAt(i, j) }
+
+        // shuffle == true
+        var rng = LCG(seed: seed)
+        if limit > 0 {
+            // Reservoir sample `limit` items without holding the full dataset in memory.
+            var reservoir: [LogiQASample] = []
+            reservoir.reserveCapacity(limit)
+            var seen = 0
+
+            try forEachJSONLLine(urls: urls) { lineData in
+                if let record = try? decoder.decode(LogiQASample.self, from: lineData) {
+                    if reservoir.count < limit {
+                        reservoir.append(record)
+                    } else {
+                        let j = rng.nextInt(upperBound: seen + 1)
+                        if j < limit {
+                            reservoir[j] = record
+                        }
+                    }
+                    seen += 1
+                }
+            }
+
+            // Match previous semantics: shuffle then prefix.
+            if reservoir.count > 1 {
+                for i in stride(from: reservoir.count - 1, through: 1, by: -1) {
+                    let j = rng.nextInt(upperBound: i + 1)
+                    if i != j { reservoir.swapAt(i, j) }
+                }
+            }
+            return reservoir
+        } else {
+            // Need full shuffle.
+            var items: [LogiQASample] = []
+            items.reserveCapacity(256)
+            try forEachJSONLLine(urls: urls) { lineData in
+                if let record = try? decoder.decode(LogiQASample.self, from: lineData) {
+                    items.append(record)
+                }
+            }
+            if items.count > 1 {
+                for i in stride(from: items.count - 1, through: 1, by: -1) {
+                    let j = rng.nextInt(upperBound: i + 1)
+                    if i != j { items.swapAt(i, j) }
+                }
+            }
+            return items
+        }
+    }
+
+    private struct StopIteration: Error {}
+
+    private static func forEachJSONLLine(urls: [URL], _ body: (Data) throws -> Void) throws {
+        for url in urls {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+
+            var buffer = Data()
+            while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                buffer.append(chunk)
+
+                while let nl = buffer.firstIndex(of: 0x0A) {
+                    let lineSlice = buffer[..<nl]
+                    buffer.removeSubrange(..<buffer.index(after: nl))
+
+                    var line = Data(lineSlice)
+                    if line.last == 0x0D { line.removeLast() } // handle CRLF
+                    if line.isEmpty { continue }
+
+                    do {
+                        try body(line)
+                    } catch is StopIteration {
+                        throw StopIteration()
+                    }
+                }
+            }
+
+            if !buffer.isEmpty {
+                var line = buffer
+                if line.last == 0x0D { line.removeLast() }
+                if !line.isEmpty {
+                    do {
+                        try body(line)
+                    } catch is StopIteration {
+                        throw StopIteration()
+                    }
+                }
             }
         }
-        if limit > 0 && items.count > limit {
-            items = Array(items.prefix(limit))
-        }
-        return items
     }
 
     private struct LCG {

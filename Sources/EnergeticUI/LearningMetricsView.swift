@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import SharedInfrastructure
+import CapsuleCore
 
 public struct LearningMetricsView: View {
     @StateObject private var viewModel: LearningMetricsViewModel
@@ -12,14 +13,16 @@ public struct LearningMetricsView: View {
     @State private var angleBoost: Double = 2.6
     @State private var maxLabelCount: Int = 4
     @State private var labelMode: LabelMode = .key
+    private let capsuleConfig: ConfigRoot.Capsule?
 
-    public init(logFileURL: URL?, title: String = "Learning metrics", pollInterval: TimeInterval = 0.5, maxRecords: Int = 200) {
+    public init(logFileURL: URL?, title: String = "Learning metrics", pollInterval: TimeInterval = 0.5, maxRecords: Int = 200, capsuleConfig: ConfigRoot.Capsule? = nil) {
         _viewModel = StateObject(wrappedValue: LearningMetricsViewModel(
             logFileURL: logFileURL,
             pollInterval: pollInterval,
             maxRecords: maxRecords
         ))
         self.title = title
+        self.capsuleConfig = capsuleConfig
     }
 
     public var body: some View {
@@ -32,9 +35,11 @@ public struct LearningMetricsView: View {
                     .foregroundColor(.secondary)
             }
 
-            ScrollView([.vertical, .horizontal]) {
-                contentView
-                    .frame(minWidth: 900, alignment: .leading)
+            GeometryReader { geo in
+                ScrollView(.vertical) {
+                    contentView
+                        .frame(width: geo.size.width, alignment: .leading)
+                }
             }
         }
         .padding()
@@ -92,7 +97,7 @@ public struct LearningMetricsView: View {
                 maxLabelCount: maxLabelCount,
                 labelMode: labelMode
             )
-            .frame(minWidth: 520, maxWidth: CGFloat.infinity)
+            .frame(maxWidth: .infinity)
         } else {
             EmptyView()
         }
@@ -182,16 +187,7 @@ public struct LearningMetricsView: View {
                 HistogramComparisonView(yHat: yHat, target: target)
                     .frame(height: 180)
                 histogramSignatureView(yHat: histogram.yHat, target: histogram.target)
-                if let input = latest.inputText, !input.isEmpty {
-                    Text("Input: \(input)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                if let answer = latest.answerText, !answer.isEmpty {
-                    Text("Answer: \(answer)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
+                predictionPanel(record: latest)
             }
         } else {
             Text("Histogram not available in log payload.")
@@ -232,9 +228,52 @@ public struct LearningMetricsView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundColor(.secondary)
             }
-            Text("Histogram is orderless; decoding text requires sequence-level signals.")
+            Text("Histogram is orderless; decoding requires sequence-level bins below.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func predictionPanel(record: LearningLogPayload) -> some View {
+        guard let predictedBins = record.predictedBins, !predictedBins.isEmpty else {
+            Text("Prediction sequence not available (logEveryUI controls when it appears).")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            return
+        }
+
+        let preview = binsPreview(predictedBins, maxCount: 96)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Prediction (bins sequence)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text(preview.text)
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.secondary)
+                .lineLimit(3)
+            Text("count \(predictedBins.count) | missing \(preview.missingCount)")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            if let config = capsuleConfig {
+                let decode = decodePrediction(predictedBins, config: config)
+                if let error = decode.error {
+                    Text("Capsule decode failed: \(error)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    let suffix = decode.truncated ? "…" : ""
+                    Text("Decoded text (\(decode.byteCount) bytes): \(decode.text)\(suffix)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(4)
+                }
+            } else {
+                Text("Capsule decode unavailable (capsule config missing).")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -423,6 +462,75 @@ public struct LearningMetricsView: View {
         return ranked.map { String(format: "#%d=%.2f", $0.offset, $0.element) }.joined(separator: " ")
     }
 
+    private struct BinsPreview {
+        let text: String
+        let missingCount: Int
+    }
+
+    private func binsPreview(_ bins: [Int], maxCount: Int) -> BinsPreview {
+        let missing = bins.filter { $0 < 0 }.count
+        let slice = bins.prefix(maxCount)
+        let text = slice.map { $0 < 0 ? "x" : String($0) }.joined(separator: " ")
+        return BinsPreview(text: text, missingCount: missing)
+    }
+
+    private struct DecodePreview {
+        let text: String
+        let byteCount: Int
+        let truncated: Bool
+        let error: String?
+    }
+
+    private func decodePrediction(_ bins: [Int], config: ConfigRoot.Capsule) -> DecodePreview {
+        let base = max(2, config.base)
+        let requiredDigits = ByteDigitsConverter.requiredDigitsCount(byteCount: config.blockSize, baseB: base)
+        var digits = bins.map { value -> Int in
+            guard value >= 0 else { return 0 }
+            return min(value, base - 1)
+        }
+        if digits.count < requiredDigits {
+            digits.append(contentsOf: Array(repeating: 0, count: requiredDigits - digits.count))
+        } else if digits.count > requiredDigits {
+            digits = Array(digits.prefix(requiredDigits))
+        }
+        let energies = digits.map { $0 + 1 }
+        do {
+            let data = try CapsuleBridge.recoverCapsule(from: energies, config: config)
+            let raw = String(decoding: data, as: UTF8.self)
+            let preview = String(raw.prefix(240))
+            return DecodePreview(
+                text: wrapText(preview, columns: 80),
+                byteCount: data.count,
+                truncated: raw.count > preview.count,
+                error: nil
+            )
+        } catch {
+            return DecodePreview(text: "", byteCount: 0, truncated: false, error: error.localizedDescription)
+        }
+    }
+
+    private func wrapText(_ text: String, columns: Int) -> String {
+        guard columns > 0, !text.isEmpty else { return text }
+        var chunks: [String] = []
+        chunks.reserveCapacity(max(1, text.count / max(columns, 1)))
+        var current = ""
+        current.reserveCapacity(columns)
+        var count = 0
+        for ch in text {
+            current.append(ch)
+            count += 1
+            if count >= columns {
+                chunks.append(current)
+                current = ""
+                count = 0
+            }
+        }
+        if !current.isEmpty {
+            chunks.append(current)
+        }
+        return chunks.joined(separator: " ")
+    }
+
     private func movingAverage(values: [Double], window: Int) -> [Double] {
         guard window > 1, !values.isEmpty else { return values }
         var out: [Double] = []
@@ -568,6 +676,7 @@ struct LearningLogPayload: Decodable {
     let histogramMatchL1: Float?
     let inputText: String?
     let answerText: String?
+    let predictedBins: [Int]?
     let params: Params
     let bins: Bins
     let histogram: Histogram?

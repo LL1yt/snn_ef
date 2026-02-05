@@ -54,7 +54,7 @@ let package = Package(
         ),
         .target(
             name: "EnergeticUI",
-            dependencies: ["SharedInfrastructure", "EnergeticCore"],
+            dependencies: ["SharedInfrastructure", "EnergeticCore", "CapsuleCore"],
             path: "Sources/EnergeticUI"
         ),
         .executableTarget(

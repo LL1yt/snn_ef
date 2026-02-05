@@ -219,6 +219,7 @@ public final class FlowLearningLoop {
         let trackedIDs = Array(seeds.prefix(3).map { $0.id })
         var traceSteps: [Int: [TraceStep]] = [:]
         var pathPoints: [Int: [PathPoint]] = [:]
+        var predictedBins: [Int]? = nil
         if needsUILog {
             for id in trackedIDs { traceSteps[id] = [] }
             for id in trackedIDs { pathPoints[id] = [] }
@@ -276,6 +277,15 @@ public final class FlowLearningLoop {
                 }
             }
             completionCount = UInt32(allCompletions.count)
+            if initialParticleCount > 0 {
+                var binsByID = [Int](repeating: -1, count: initialParticleCount)
+                for completion in allCompletions {
+                    let id = completion.particleID
+                    guard id >= 0 && id < binsByID.count else { continue }
+                    binsByID[id] = completion.binIndex
+                }
+                predictedBins = binsByID
+            }
         } else {
             // Fast path: one GPU-run with completions + counters + scalar metrics
             let wantsWeighted = (learningConfig.outputSignal == .weightedBinsGPU) && (targets.count == flowConfig.bins)
@@ -488,6 +498,7 @@ public final class FlowLearningLoop {
                 targets: targets,
                 inputText: inputText,
                 answerText: answerText,
+                predictedBins: predictedBins,
                 traces: traces,
                 paths: paths
             )
@@ -599,6 +610,7 @@ public final class FlowLearningLoop {
         targets: [Float],
         inputText: String?,
         answerText: String?,
+        predictedBins: [Int]?,
         traces: [LearningLogPayload.Trace],
         paths: [LearningLogPayload.Path]
     ) {
@@ -626,6 +638,7 @@ public final class FlowLearningLoop {
             histogramMatchL1: metrics.histogramMatchL1,
             inputText: inputText,
             answerText: answerText,
+            predictedBins: predictedBins,
             params: .init(
                 lif: params.lifThreshold,
                 radialBias: params.radialBias,
@@ -691,6 +704,7 @@ public final class FlowLearningLoop {
         let histogramMatchL1: Float?
         let inputText: String?
         let answerText: String?
+        let predictedBins: [Int]?
         let params: Params
         let bins: Bins
         let histogram: Histogram?
