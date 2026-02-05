@@ -81,7 +81,10 @@ struct EnergeticCLI {
             radius: Double(flowCfg.radius),
             stepCount: flowCfg.T,
             ringSeeds: ringSeeds,
-            samples: samples
+            samples: samples,
+            seedLayout: flowCfg.seedLayout,
+            seedRadius: Double(flowCfg.seedRadius),
+            finalWeightPower: Double(flowCfg.finalWeightPower)
         )
 
         // Log summary

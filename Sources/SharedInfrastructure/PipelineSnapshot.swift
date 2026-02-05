@@ -180,12 +180,27 @@ public struct ConfigPipelineSnapshot: Codable {
         public let stepCount: Int
         public let ringSeeds: [RingSeed]
         public let samples: [ParticleSample]
-        public init(bins: [Double], radius: Double, stepCount: Int, ringSeeds: [RingSeed], samples: [ParticleSample]) {
+        public let seedLayout: String?
+        public let seedRadius: Double?
+        public let finalWeightPower: Double?
+        public init(
+            bins: [Double],
+            radius: Double,
+            stepCount: Int,
+            ringSeeds: [RingSeed],
+            samples: [ParticleSample],
+            seedLayout: String? = nil,
+            seedRadius: Double? = nil,
+            finalWeightPower: Double? = nil
+        ) {
             self.bins = bins
             self.radius = radius
             self.stepCount = stepCount
             self.ringSeeds = ringSeeds
             self.samples = samples
+            self.seedLayout = seedLayout
+            self.seedRadius = seedRadius
+            self.finalWeightPower = finalWeightPower
         }
     }
 

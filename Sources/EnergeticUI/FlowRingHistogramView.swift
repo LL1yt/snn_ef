@@ -9,9 +9,16 @@ public struct FlowRingHistogramView: View {
     }
 
     public var body: some View {
+        let layout = flow.seedLayout ?? "ring"
+        let seedRadius = flow.seedRadius
         VStack(alignment: .leading, spacing: 8) {
-            Text("Flow ring and boundary histogram")
+            Text("Flow \(layout) seeds and boundary histogram")
                 .font(.headline)
+            if let seedRadius {
+                Text(String(format: "Seed radius: %.2f", seedRadius))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             GeometryReader { geo in
                 Canvas { ctx, size in
                     let w = size.width

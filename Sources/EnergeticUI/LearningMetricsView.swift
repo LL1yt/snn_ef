@@ -32,7 +32,10 @@ public struct LearningMetricsView: View {
                     .foregroundColor(.secondary)
             }
 
-            contentView
+            ScrollView([.vertical, .horizontal]) {
+                contentView
+                    .frame(minWidth: 900, alignment: .leading)
+            }
         }
         .padding()
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.06)))
@@ -58,9 +61,11 @@ public struct LearningMetricsView: View {
                 .font(.footnote)
                 .foregroundColor(.secondary)
         } else {
-            HStack(alignment: .top, spacing: 16) {
-                leftColumn
-                centerColumn
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
+                    leftColumn
+                    centerColumn
+                }
                 rightColumn
             }
         }
@@ -99,7 +104,7 @@ public struct LearningMetricsView: View {
             lossCharts
             rateCharts
         }
-        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity)
     }
 
     private var lossCharts: some View {
@@ -645,9 +650,13 @@ struct StreamTracksView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Stream dynamics (tracks)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            HStack(alignment: .top, spacing: 8) {
+                Text("Stream dynamics (tracks)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Spacer()
+                TrackLegendView()
+            }
 
             if traces.isEmpty && paths.isEmpty {
                 Text("No stream traces in payload.")
@@ -669,10 +678,6 @@ struct StreamTracksView: View {
                             labelMode: labelMode
                         )
                     }
-                }
-                .overlay(alignment: .topLeading) {
-                    TrackLegendView()
-                        .padding(6)
                 }
             }
         }

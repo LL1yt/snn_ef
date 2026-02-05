@@ -23,7 +23,7 @@ struct EnergeticVisualizationDemoApp: App {
             resolvedError = nil
 
             LoggingHub.emit(
-                process: "ui.pipeline.app",
+                process: "ui.pipeline",
                 level: .info,
                 message: "EnergeticVisualization demo launched with config: \(loadedSnapshot.sourceURL.path)"
             )

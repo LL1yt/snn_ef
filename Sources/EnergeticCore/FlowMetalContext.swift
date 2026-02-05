@@ -334,56 +334,57 @@ final class FlowMetalContext {
             writeArray(one, to: gainsBuffer!, count: 1)
         }
 
-        for step in 0..<cfg.T {
-            let params = FlowMetalParams(
-                count: UInt32(count),
-                bins: UInt32(cfg.bins),
-                step: UInt32(step),
-                baseSeed: baseSeed,
-                radius: cfg.radius,
-                lifDecay: cfg.lif.decay,
-                lifThreshold: cfg.lif.threshold,
-                lifReset: cfg.lif.resetValue,
-                radialBias: cfg.dynamics.radialBias,
-                spikeKick: cfg.dynamics.spikeKick,
-                noiseStdPos: cfg.dynamics.noiseStdPos,
-                noiseStdDir: cfg.dynamics.noiseStdDir,
-                maxSpeed: cfg.dynamics.maxSpeed,
-                energyAlpha: cfg.dynamics.energyAlpha,
-                energyFloor: cfg.dynamics.energyFloor,
-                finalWeightPower: cfg.finalWeightPower,
-                gainsCount: gainsCount,
-                threadsPerGroup: UInt32(stepThreadsPerGroup),
-                groupCount: UInt32(stepGroupCount)
-            )
+        var stepParams = FlowMetalParams(
+            count: UInt32(count),
+            bins: UInt32(cfg.bins),
+            step: 0,
+            baseSeed: baseSeed,
+            radius: cfg.radius,
+            lifDecay: cfg.lif.decay,
+            lifThreshold: cfg.lif.threshold,
+            lifReset: cfg.lif.resetValue,
+            radialBias: cfg.dynamics.radialBias,
+            spikeKick: cfg.dynamics.spikeKick,
+            noiseStdPos: cfg.dynamics.noiseStdPos,
+            noiseStdDir: cfg.dynamics.noiseStdDir,
+            maxSpeed: cfg.dynamics.maxSpeed,
+            energyAlpha: cfg.dynamics.energyAlpha,
+            energyFloor: cfg.dynamics.energyFloor,
+            finalWeightPower: cfg.finalWeightPower,
+            gainsCount: gainsCount,
+            threadsPerGroup: UInt32(stepThreadsPerGroup),
+            groupCount: UInt32(stepGroupCount)
+        )
 
-            guard let cmd = queue.makeCommandBuffer(),
-                  let enc = cmd.makeComputeCommandEncoder() else { break }
-            enc.setComputePipelineState(stepPipeline)
-            enc.setBuffer(idsBuffer, offset: 0, index: 0)
-            enc.setBuffer(posXBuffer, offset: 0, index: 1)
-            enc.setBuffer(posYBuffer, offset: 0, index: 2)
-            enc.setBuffer(velXBuffer, offset: 0, index: 3)
-            enc.setBuffer(velYBuffer, offset: 0, index: 4)
-            enc.setBuffer(energyBuffer, offset: 0, index: 5)
-            enc.setBuffer(vBuffer, offset: 0, index: 6)
-            enc.setBuffer(histogramBuffer, offset: 0, index: 7)
-            enc.setBuffer(groupHistogramBuffer, offset: 0, index: 8)
-            enc.setBuffer(projectedBinBuffer, offset: 0, index: 9)
-            enc.setBuffer(spikedBuffer, offset: 0, index: 10)
-            enc.setBuffer(aliveBuffer, offset: 0, index: 11)
-            enc.setBuffer(gainsBuffer, offset: 0, index: 12)
-
-            var paramsCopy = params
-            enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 13)
-
-            let threadsPerThreadgroup = MTLSize(width: max(1, stepTG), height: 1, depth: 1)
-            let threads = MTLSize(width: count, height: 1, depth: 1)
-            enc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
-            enc.endEncoding()
-            cmd.commit()
-            cmd.waitUntilCompleted()
+        guard let cmd = queue.makeCommandBuffer(),
+              let stepEnc = cmd.makeComputeCommandEncoder() else {
+            LoggingHub.endSignpost("flow.run", token: token)
+            return readArray(from: histogramBuffer!, count: cfg.bins) as [Float]
         }
+        stepEnc.setComputePipelineState(stepPipeline)
+        stepEnc.setBuffer(idsBuffer, offset: 0, index: 0)
+        stepEnc.setBuffer(posXBuffer, offset: 0, index: 1)
+        stepEnc.setBuffer(posYBuffer, offset: 0, index: 2)
+        stepEnc.setBuffer(velXBuffer, offset: 0, index: 3)
+        stepEnc.setBuffer(velYBuffer, offset: 0, index: 4)
+        stepEnc.setBuffer(energyBuffer, offset: 0, index: 5)
+        stepEnc.setBuffer(vBuffer, offset: 0, index: 6)
+        stepEnc.setBuffer(histogramBuffer, offset: 0, index: 7)
+        stepEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 8)
+        stepEnc.setBuffer(projectedBinBuffer, offset: 0, index: 9)
+        stepEnc.setBuffer(spikedBuffer, offset: 0, index: 10)
+        stepEnc.setBuffer(aliveBuffer, offset: 0, index: 11)
+        stepEnc.setBuffer(gainsBuffer, offset: 0, index: 12)
+
+        let stepThreadsPerThreadgroup = MTLSize(width: max(1, stepTG), height: 1, depth: 1)
+        let stepThreads = MTLSize(width: count, height: 1, depth: 1)
+        for step in 0..<cfg.T {
+            stepParams.step = UInt32(step)
+            var paramsCopy = stepParams
+            stepEnc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 13)
+            stepEnc.dispatchThreads(stepThreads, threadsPerThreadgroup: stepThreadsPerThreadgroup)
+        }
+        stepEnc.endEncoding()
 
         let finalParams = FlowMetalParams(
             count: UInt32(count),
@@ -407,11 +408,11 @@ final class FlowMetalContext {
             groupCount: UInt32(finalGroupCount)
         )
 
-        guard let finalCmd = queue.makeCommandBuffer(),
-              let finalEnc = finalCmd.makeComputeCommandEncoder() else {
+        guard let finalEnc = cmd.makeComputeCommandEncoder() else {
             LoggingHub.endSignpost("flow.run", token: token)
             return readArray(from: histogramBuffer!, count: cfg.bins) as [Float]
         }
+
         finalEnc.setComputePipelineState(finalPipeline)
         finalEnc.setBuffer(posXBuffer, offset: 0, index: 0)
         finalEnc.setBuffer(posYBuffer, offset: 0, index: 1)
@@ -426,7 +427,7 @@ final class FlowMetalContext {
         let threads = MTLSize(width: count, height: 1, depth: 1)
         finalEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
         finalEnc.endEncoding()
-        if let reduceEnc = finalCmd.makeComputeCommandEncoder() {
+        if let reduceEnc = cmd.makeComputeCommandEncoder() {
             reduceEnc.setComputePipelineState(reducePipeline)
             reduceEnc.setBuffer(histogramBuffer, offset: 0, index: 0)
             reduceEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 1)
@@ -439,8 +440,8 @@ final class FlowMetalContext {
             reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
             reduceEnc.endEncoding()
         }
-        finalCmd.commit()
-        finalCmd.waitUntilCompleted()
+        cmd.commit()
+        cmd.waitUntilCompleted()
 
         let outputs: [Float] = readArray(from: histogramBuffer!, count: cfg.bins)
         LoggingHub.endSignpost("flow.run", token: token)
