@@ -960,7 +960,7 @@ private struct TrackLegendView: View {
     }
 }
 
-private enum LabelMode: CaseIterable {
+enum LabelMode: CaseIterable {
     case off
     case key
     case dense

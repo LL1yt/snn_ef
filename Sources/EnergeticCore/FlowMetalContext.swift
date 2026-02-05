@@ -20,6 +20,8 @@ struct FlowMetalParams {
     var energyFloor: Float
     var finalWeightPower: Float
     var gainsCount: UInt32
+    var threadsPerGroup: UInt32
+    var groupCount: UInt32
 }
 
 final class FlowMetalContext {
@@ -28,9 +30,12 @@ final class FlowMetalContext {
     private let queue: MTLCommandQueue
     private let stepPipeline: MTLComputePipelineState
     private let finalPipeline: MTLComputePipelineState
+    private let reducePipeline: MTLComputePipelineState
 
     private var particleCapacity: Int = 0
     private var binsCapacity: Int = 0
+    private var groupHistogramCapacityGroups: Int = 0
+    private var groupHistogramCapacityBins: Int = 0
 
     private var idsBuffer: MTLBuffer?
     private var posXBuffer: MTLBuffer?
@@ -40,6 +45,7 @@ final class FlowMetalContext {
     private var energyBuffer: MTLBuffer?
     private var vBuffer: MTLBuffer?
     private var histogramBuffer: MTLBuffer?
+    private var groupHistogramBuffer: MTLBuffer?
     private var gainsBuffer: MTLBuffer?
     private var projectedBinBuffer: MTLBuffer?
     private var spikedBuffer: MTLBuffer?
@@ -83,13 +89,15 @@ final class FlowMetalContext {
             return nil
         }
         guard let stepFunction = library.makeFunction(name: "flow_step"),
-              let finalFunction = library.makeFunction(name: "flow_project_final") else {
-            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_project_final in library"
+              let finalFunction = library.makeFunction(name: "flow_project_final"),
+              let reduceFunction = library.makeFunction(name: "flow_reduce_hist") else {
+            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_project_final/flow_reduce_hist in library"
             return nil
         }
         do {
             self.stepPipeline = try device.makeComputePipelineState(function: stepFunction)
             self.finalPipeline = try device.makeComputePipelineState(function: finalFunction)
+            self.reducePipeline = try device.makeComputePipelineState(function: reduceFunction)
         } catch {
             FlowMetalContext.lastInitError = "makeComputePipelineState failed: \(error)"
             return nil
@@ -125,6 +133,11 @@ final class FlowMetalContext {
         writeArray(state.V, to: vBuffer!, count: count)
         writeArray(state.outputs, to: histogramBuffer!, count: cfg.bins)
         fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
+        let stepTG = min(stepPipeline.maxTotalThreadsPerThreadgroup, stepPipeline.threadExecutionWidth * 4)
+        let threadsPerGroup = max(1, stepTG)
+        let groupCount = (count + threadsPerGroup - 1) / threadsPerGroup
+        ensureGroupHistogramCapacity(groupCount: groupCount, bins: cfg.bins)
+        clearBuffer(groupHistogramBuffer!, length: groupCount * cfg.bins * MemoryLayout<Float>.stride)
 
         var gainsCount: UInt32 = 0
         if let gains, gains.count == cfg.bins {
@@ -152,7 +165,9 @@ final class FlowMetalContext {
             energyAlpha: cfg.dynamics.energyAlpha,
             energyFloor: cfg.dynamics.energyFloor,
             finalWeightPower: cfg.finalWeightPower,
-            gainsCount: gainsCount
+            gainsCount: gainsCount,
+            threadsPerGroup: UInt32(threadsPerGroup),
+            groupCount: UInt32(groupCount)
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -166,15 +181,14 @@ final class FlowMetalContext {
         enc.setBuffer(energyBuffer, offset: 0, index: 5)
         enc.setBuffer(vBuffer, offset: 0, index: 6)
         enc.setBuffer(histogramBuffer, offset: 0, index: 7)
-        enc.setBuffer(projectedBinBuffer, offset: 0, index: 8)
-        enc.setBuffer(spikedBuffer, offset: 0, index: 9)
-        enc.setBuffer(aliveBuffer, offset: 0, index: 10)
-        enc.setBuffer(gainsBuffer, offset: 0, index: 11)
+        enc.setBuffer(groupHistogramBuffer, offset: 0, index: 8)
+        enc.setBuffer(projectedBinBuffer, offset: 0, index: 9)
+        enc.setBuffer(spikedBuffer, offset: 0, index: 10)
+        enc.setBuffer(aliveBuffer, offset: 0, index: 11)
+        enc.setBuffer(gainsBuffer, offset: 0, index: 12)
 
         var paramsCopy = params
-        enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 12)
-
-        let stepTG = min(stepPipeline.maxTotalThreadsPerThreadgroup, stepPipeline.threadExecutionWidth * 4)
+        enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 13)
         let threadsPerThreadgroup = MTLSize(
             width: max(1, stepTG),
             height: 1,
@@ -183,6 +197,19 @@ final class FlowMetalContext {
         let threads = MTLSize(width: count, height: 1, depth: 1)
         enc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
         enc.endEncoding()
+
+        if let reduceEnc = cmd.makeComputeCommandEncoder() {
+            reduceEnc.setComputePipelineState(reducePipeline)
+            reduceEnc.setBuffer(histogramBuffer, offset: 0, index: 0)
+            reduceEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 1)
+            var reduceParams = params
+            reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+            let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+            let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+            let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+            reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+            reduceEnc.endEncoding()
+        }
         cmd.commit()
         cmd.waitUntilCompleted()
         LoggingHub.endSignpost("flow.step", token: token)
@@ -288,6 +315,15 @@ final class FlowMetalContext {
         writeArray(v, to: vBuffer!, count: count)
         clearBuffer(histogramBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
         fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
+        let stepTG = min(stepPipeline.maxTotalThreadsPerThreadgroup, stepPipeline.threadExecutionWidth * 4)
+        let stepThreadsPerGroup = max(1, stepTG)
+        let stepGroupCount = (count + stepThreadsPerGroup - 1) / stepThreadsPerGroup
+        let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
+        let finalThreadsPerGroup = max(1, finalTG)
+        let finalGroupCount = (count + finalThreadsPerGroup - 1) / finalThreadsPerGroup
+        let maxGroupCount = max(stepGroupCount, finalGroupCount)
+        ensureGroupHistogramCapacity(groupCount: maxGroupCount, bins: cfg.bins)
+        clearBuffer(groupHistogramBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
 
         var gainsCount: UInt32 = 0
         if let gains, gains.count == cfg.bins {
@@ -316,7 +352,9 @@ final class FlowMetalContext {
                 energyAlpha: cfg.dynamics.energyAlpha,
                 energyFloor: cfg.dynamics.energyFloor,
                 finalWeightPower: cfg.finalWeightPower,
-                gainsCount: gainsCount
+                gainsCount: gainsCount,
+                threadsPerGroup: UInt32(stepThreadsPerGroup),
+                groupCount: UInt32(stepGroupCount)
             )
 
             guard let cmd = queue.makeCommandBuffer(),
@@ -330,15 +368,15 @@ final class FlowMetalContext {
             enc.setBuffer(energyBuffer, offset: 0, index: 5)
             enc.setBuffer(vBuffer, offset: 0, index: 6)
             enc.setBuffer(histogramBuffer, offset: 0, index: 7)
-            enc.setBuffer(projectedBinBuffer, offset: 0, index: 8)
-            enc.setBuffer(spikedBuffer, offset: 0, index: 9)
-            enc.setBuffer(aliveBuffer, offset: 0, index: 10)
-            enc.setBuffer(gainsBuffer, offset: 0, index: 11)
+            enc.setBuffer(groupHistogramBuffer, offset: 0, index: 8)
+            enc.setBuffer(projectedBinBuffer, offset: 0, index: 9)
+            enc.setBuffer(spikedBuffer, offset: 0, index: 10)
+            enc.setBuffer(aliveBuffer, offset: 0, index: 11)
+            enc.setBuffer(gainsBuffer, offset: 0, index: 12)
 
             var paramsCopy = params
-            enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 12)
+            enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 13)
 
-            let stepTG = min(stepPipeline.maxTotalThreadsPerThreadgroup, stepPipeline.threadExecutionWidth * 4)
             let threadsPerThreadgroup = MTLSize(width: max(1, stepTG), height: 1, depth: 1)
             let threads = MTLSize(width: count, height: 1, depth: 1)
             enc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
@@ -364,7 +402,9 @@ final class FlowMetalContext {
             energyAlpha: 0,
             energyFloor: 0,
             finalWeightPower: cfg.finalWeightPower,
-            gainsCount: gainsCount
+            gainsCount: gainsCount,
+            threadsPerGroup: UInt32(finalThreadsPerGroup),
+            groupCount: UInt32(finalGroupCount)
         )
 
         guard let finalCmd = queue.makeCommandBuffer(),
@@ -377,15 +417,28 @@ final class FlowMetalContext {
         finalEnc.setBuffer(posYBuffer, offset: 0, index: 1)
         finalEnc.setBuffer(energyBuffer, offset: 0, index: 2)
         finalEnc.setBuffer(histogramBuffer, offset: 0, index: 3)
-        finalEnc.setBuffer(aliveBuffer, offset: 0, index: 4)
-        finalEnc.setBuffer(gainsBuffer, offset: 0, index: 5)
+        finalEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 4)
+        finalEnc.setBuffer(aliveBuffer, offset: 0, index: 5)
+        finalEnc.setBuffer(gainsBuffer, offset: 0, index: 6)
         var finalParamsCopy = finalParams
-        finalEnc.setBytes(&finalParamsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 6)
-        let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
+        finalEnc.setBytes(&finalParamsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 7)
         let threadsPerThreadgroup = MTLSize(width: max(1, finalTG), height: 1, depth: 1)
         let threads = MTLSize(width: count, height: 1, depth: 1)
         finalEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
         finalEnc.endEncoding()
+        if let reduceEnc = finalCmd.makeComputeCommandEncoder() {
+            reduceEnc.setComputePipelineState(reducePipeline)
+            reduceEnc.setBuffer(histogramBuffer, offset: 0, index: 0)
+            reduceEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 1)
+            var reduceParams = finalParams
+            reduceParams.groupCount = UInt32(maxGroupCount)
+            reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+            let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+            let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+            let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+            reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+            reduceEnc.endEncoding()
+        }
         finalCmd.commit()
         finalCmd.waitUntilCompleted()
 
@@ -414,6 +467,10 @@ final class FlowMetalContext {
         writeArray(state.energy, to: energyBuffer!, count: count)
         writeArray(state.outputs, to: histogramBuffer!, count: cfg.bins)
         fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
+        let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
+        let threadsPerGroup = max(1, finalTG)
+        let groupCount = (count + threadsPerGroup - 1) / threadsPerGroup
+        ensureGroupHistogramCapacity(groupCount: groupCount, bins: cfg.bins)
 
         var gainsCount: UInt32 = 0
         if let gains, gains.count == cfg.bins {
@@ -441,21 +498,24 @@ final class FlowMetalContext {
             energyAlpha: 0,
             energyFloor: 0,
             finalWeightPower: cfg.finalWeightPower,
-            gainsCount: gainsCount
+            gainsCount: gainsCount,
+            threadsPerGroup: UInt32(threadsPerGroup),
+            groupCount: UInt32(groupCount)
         )
 
         guard let cmd = queue.makeCommandBuffer(),
               let enc = cmd.makeComputeCommandEncoder() else { return }
+        clearBuffer(groupHistogramBuffer!, length: groupCount * cfg.bins * MemoryLayout<Float>.stride)
         enc.setComputePipelineState(finalPipeline)
         enc.setBuffer(posXBuffer, offset: 0, index: 0)
         enc.setBuffer(posYBuffer, offset: 0, index: 1)
         enc.setBuffer(energyBuffer, offset: 0, index: 2)
         enc.setBuffer(histogramBuffer, offset: 0, index: 3)
-        enc.setBuffer(aliveBuffer, offset: 0, index: 4)
-        enc.setBuffer(gainsBuffer, offset: 0, index: 5)
+        enc.setBuffer(groupHistogramBuffer, offset: 0, index: 4)
+        enc.setBuffer(aliveBuffer, offset: 0, index: 5)
+        enc.setBuffer(gainsBuffer, offset: 0, index: 6)
         var paramsCopy = params
-        enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 6)
-        let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
+        enc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 7)
         let threadsPerThreadgroup = MTLSize(
             width: max(1, finalTG),
             height: 1,
@@ -464,6 +524,18 @@ final class FlowMetalContext {
         let threads = MTLSize(width: count, height: 1, depth: 1)
         enc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
         enc.endEncoding()
+        if let reduceEnc = cmd.makeComputeCommandEncoder() {
+            reduceEnc.setComputePipelineState(reducePipeline)
+            reduceEnc.setBuffer(histogramBuffer, offset: 0, index: 0)
+            reduceEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 1)
+            var reduceParams = params
+            reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+            let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+            let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+            let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+            reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+            reduceEnc.endEncoding()
+        }
         cmd.commit()
         cmd.waitUntilCompleted()
 
@@ -492,6 +564,18 @@ final class FlowMetalContext {
         binsCapacity = max(bins, binsCapacity * 2, 64)
         histogramBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
         gainsBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+    }
+
+    private func ensureGroupHistogramCapacity(groupCount: Int, bins: Int) {
+        let desiredBins = max(bins, binsCapacity)
+        if groupHistogramBuffer == nil
+            || groupCount > groupHistogramCapacityGroups
+            || desiredBins > groupHistogramCapacityBins {
+            groupHistogramCapacityGroups = max(groupCount, groupHistogramCapacityGroups * 2, 1)
+            groupHistogramCapacityBins = max(desiredBins, groupHistogramCapacityBins * 2, 1)
+            let length = groupHistogramCapacityGroups * groupHistogramCapacityBins * MemoryLayout<Float>.stride
+            groupHistogramBuffer = device.makeBuffer(length: length, options: .storageModeShared)
+        }
     }
 
     private func writeArray<T>(_ array: [T], to buffer: MTLBuffer, count: Int) {

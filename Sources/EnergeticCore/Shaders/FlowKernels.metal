@@ -19,6 +19,8 @@ struct FlowParams {
     float energyFloor;
     float finalWeightPower;
     uint gainsCount;
+    uint threadsPerGroup;
+    uint groupCount;
 };
 
 static inline uint mix32(uint v) {
@@ -54,8 +56,6 @@ static inline int binIndex(float theta, uint bins) {
     return clamp(idx, 0, int(bins - 1));
 }
 
-#define FLOW_TG_BINS 256
-
 kernel void flow_step(
     device const int *ids [[buffer(0)]],
     device float *posX [[buffer(1)]],
@@ -65,83 +65,59 @@ kernel void flow_step(
     device float *energy [[buffer(5)]],
     device float *V [[buffer(6)]],
     device atomic_float *histogram [[buffer(7)]],
-    device int *projectedBin [[buffer(8)]],
-    device uchar *spikedOut [[buffer(9)]],
-    device uchar *alive [[buffer(10)]],
-    device const float *gains [[buffer(11)]],
-    constant FlowParams &p [[buffer(12)]],
-    uint gid [[thread_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint3 tgs [[threads_per_threadgroup]]
+    device atomic_float *groupHistogram [[buffer(8)]],
+    device int *projectedBin [[buffer(9)]],
+    device uchar *spikedOut [[buffer(10)]],
+    device uchar *alive [[buffer(11)]],
+    device const float *gains [[buffer(12)]],
+    constant FlowParams &p [[buffer(13)]],
+    uint gid [[thread_position_in_grid]]
 ) {
-    bool inRange = gid < p.count;
-    const bool useLocal = p.bins <= FLOW_TG_BINS;
-    threadgroup atomic_float localHist[FLOW_TG_BINS];
-    if (useLocal) {
-        uint tgSize = tgs.x;
-        for (uint i = tid; i < FLOW_TG_BINS; i += tgSize) {
-            atomic_store_explicit(&localHist[i], 0.0f, memory_order_relaxed);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (!useLocal && !inRange) { return; }
-    bool active = inRange && (alive[gid] != 0);
-    if (inRange && !active) {
+    if (gid >= p.count) { return; }
+
+    bool active = alive[gid] != 0;
+    if (!active) {
         projectedBin[gid] = -1;
         spikedOut[gid] = 0;
         alive[gid] = 0;
+        return;
     }
 
-    int id = 0;
-    float px = 0.0f;
-    float py = 0.0f;
-    float vx = 0.0f;
-    float vy = 0.0f;
-    float e = 0.0f;
-    float v = 0.0f;
-    if (active) {
-        id = ids[gid];
-        px = posX[gid];
-        py = posY[gid];
-        vx = velX[gid];
-        vy = velY[gid];
-        e = energy[gid];
-        v = V[gid];
-    }
+    int id = ids[gid];
+    float px = posX[gid];
+    float py = posY[gid];
+    float vx = velX[gid];
+    float vy = velY[gid];
+    float e = energy[gid];
+    float v = V[gid];
 
     float energyNorm = clamp(e / float(p.bins), 0.0f, 1.0f);
     float noiseDrive = (rand01(id, p.step, 1, p.baseSeed) - 0.5f) * 0.1f;
     float vUpdated = p.lifDecay * v + energyNorm + noiseDrive;
     bool spiked = false;
-    if (active) {
-        if (vUpdated >= p.lifThreshold) {
-            v = p.lifReset;
-            spiked = true;
-        } else {
-            v = max(0.0f, vUpdated);
-        }
+    if (vUpdated >= p.lifThreshold) {
+        v = p.lifReset;
+        spiked = true;
+    } else {
+        v = max(0.0f, vUpdated);
     }
 
     float len = sqrt(max(0.0f, px * px + py * py));
     float dirX = 0.0f;
     float dirY = 0.0f;
-    if (active) {
-        if (len > 0.0f) {
-            dirX = px / len;
-            dirY = py / len;
-        } else {
-            float ang = randUniform(id, p.step, 2, p.baseSeed, 0.0f, 6.283185307179586f);
-            dirX = cos(ang);
-            dirY = sin(ang);
-        }
+    if (len > 0.0f) {
+        dirX = px / len;
+        dirY = py / len;
+    } else {
+        float ang = randUniform(id, p.step, 2, p.baseSeed, 0.0f, 6.283185307179586f);
+        dirX = cos(ang);
+        dirY = sin(ang);
     }
 
-    if (active) {
-        vx += p.radialBias * dirX;
-        vy += p.radialBias * dirY;
-    }
+    vx += p.radialBias * dirX;
+    vy += p.radialBias * dirY;
 
-    if (active && spiked) {
+    if (spiked) {
         float jitterAng = randUniform(id, p.step, 3, p.baseSeed, -3.141592653589793f, 3.141592653589793f) * p.noiseStdDir;
         float rotX = cos(jitterAng);
         float rotY = sin(jitterAng);
@@ -151,71 +127,50 @@ kernel void flow_step(
         vy += p.spikeKick * kickY;
     }
 
-    if (active) {
-        float noiseAng = randUniform(id, p.step, 4, p.baseSeed, -3.141592653589793f, 3.141592653589793f);
-        vx += cos(noiseAng) * p.noiseStdPos;
-        vy += sin(noiseAng) * p.noiseStdPos;
-    }
+    float noiseAng = randUniform(id, p.step, 4, p.baseSeed, -3.141592653589793f, 3.141592653589793f);
+    vx += cos(noiseAng) * p.noiseStdPos;
+    vy += sin(noiseAng) * p.noiseStdPos;
 
     float speed = sqrt(max(0.0f, vx * vx + vy * vy));
-    if (active && speed > p.maxSpeed && speed > 0.0f) {
+    if (speed > p.maxSpeed && speed > 0.0f) {
         float scale = p.maxSpeed / speed;
         vx *= scale;
         vy *= scale;
     }
 
-    if (active) {
-        px += vx;
-        py += vy;
-    }
+    px += vx;
+    py += vy;
 
     e *= p.energyAlpha;
-    bool aliveFlag = active;
+    bool aliveFlag = true;
     int proj = -1;
 
-    if (active) {
-        if (e < p.energyFloor) {
+    if (e < p.energyFloor) {
+        aliveFlag = false;
+    } else {
+        float r = sqrt(max(0.0f, px * px + py * py));
+        if (r >= p.radius) {
+            float theta = atan2(py, px);
+            int b = binIndex(theta, p.bins);
+            proj = b;
+            float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;
+            float contrib = g * max(0.0f, e);
+            uint groupId = p.threadsPerGroup > 0 ? (gid / p.threadsPerGroup) : 0;
+            uint idx = groupId * p.bins + uint(b);
+            atomic_fetch_add_explicit(&groupHistogram[idx], contrib, memory_order_relaxed);
             aliveFlag = false;
-        } else {
-            float r = sqrt(max(0.0f, px * px + py * py));
-            if (r >= p.radius) {
-                float theta = atan2(py, px);
-                int b = binIndex(theta, p.bins);
-                proj = b;
-                float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;
-                float contrib = g * max(0.0f, e);
-                if (useLocal) {
-                    atomic_fetch_add_explicit(&localHist[b], contrib, memory_order_relaxed);
-                } else {
-                    atomic_fetch_add_explicit(&histogram[b], contrib, memory_order_relaxed);
-                }
-                aliveFlag = false;
-            }
         }
     }
 
-    if (active) {
-        posX[gid] = px;
-        posY[gid] = py;
-        velX[gid] = vx;
-        velY[gid] = vy;
-        energy[gid] = e;
-        V[gid] = v;
-        projectedBin[gid] = proj;
-        spikedOut[gid] = spiked ? 1 : 0;
-        alive[gid] = aliveFlag ? 1 : 0;
-    }
-
-    if (useLocal) {
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        uint tgSize = tgs.x;
-        for (uint i = tid; i < p.bins; i += tgSize) {
-            float vHist = atomic_load_explicit(&localHist[i], memory_order_relaxed);
-            if (vHist != 0.0f) {
-                atomic_fetch_add_explicit(&histogram[i], vHist, memory_order_relaxed);
-            }
-        }
-    }
+    posX[gid] = px;
+    posY[gid] = py;
+    velX[gid] = vx;
+    velY[gid] = vy;
+    energy[gid] = e;
+    V[gid] = v;
+    projectedBin[gid] = proj;
+    spikedOut[gid] = spiked ? 1 : 0;
+    alive[gid] = aliveFlag ? 1 : 0;
 }
 
 kernel void flow_project_final(
@@ -223,51 +178,44 @@ kernel void flow_project_final(
     device const float *posY [[buffer(1)]],
     device const float *energy [[buffer(2)]],
     device atomic_float *histogram [[buffer(3)]],
-    device const uchar *alive [[buffer(4)]],
-    device const float *gains [[buffer(5)]],
-    constant FlowParams &p [[buffer(6)]],
-    uint gid [[thread_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint3 tgs [[threads_per_threadgroup]]
+    device atomic_float *groupHistogram [[buffer(4)]],
+    device const uchar *alive [[buffer(5)]],
+    device const float *gains [[buffer(6)]],
+    constant FlowParams &p [[buffer(7)]],
+    uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= p.count) { return; }
-    const bool useLocal = p.bins <= FLOW_TG_BINS;
-    threadgroup atomic_float localHist[FLOW_TG_BINS];
-    if (useLocal) {
-        uint tgSize = tgs.x;
-        for (uint i = tid; i < FLOW_TG_BINS; i += tgSize) {
-            atomic_store_explicit(&localHist[i], 0.0f, memory_order_relaxed);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (!useLocal && !inRange) { return; }
-    bool active = inRange && (alive[gid] != 0);
-    if (active) {
-        float px = posX[gid];
-        float py = posY[gid];
-        float e = energy[gid];
-        float theta = atan2(py, px);
-        int b = binIndex(theta, p.bins);
-        float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;
-        float r = sqrt(max(0.0f, px * px + py * py));
-        float ratio = clamp(r / max(p.radius, 1e-6f), 0.0f, 1.0f);
-        float weight = pow(ratio, p.finalWeightPower);
-        float contrib = g * max(0.0f, e) * weight;
-        if (useLocal) {
-            atomic_fetch_add_explicit(&localHist[b], contrib, memory_order_relaxed);
-        } else {
-            atomic_fetch_add_explicit(&histogram[b], contrib, memory_order_relaxed);
-        }
-    }
+    if (alive[gid] == 0) { return; }
 
-    if (useLocal) {
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        uint tgSize = tgs.x;
-        for (uint i = tid; i < p.bins; i += tgSize) {
-            float vHist = atomic_load_explicit(&localHist[i], memory_order_relaxed);
-            if (vHist != 0.0f) {
-                atomic_fetch_add_explicit(&histogram[i], vHist, memory_order_relaxed);
-            }
-        }
+    float px = posX[gid];
+    float py = posY[gid];
+    float e = energy[gid];
+    float theta = atan2(py, px);
+    int b = binIndex(theta, p.bins);
+    float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;
+    float r = sqrt(max(0.0f, px * px + py * py));
+    float ratio = clamp(r / max(p.radius, 1e-6f), 0.0f, 1.0f);
+    float weight = pow(ratio, p.finalWeightPower);
+    float contrib = g * max(0.0f, e) * weight;
+    uint groupId = p.threadsPerGroup > 0 ? (gid / p.threadsPerGroup) : 0;
+    uint idx = groupId * p.bins + uint(b);
+    atomic_fetch_add_explicit(&groupHistogram[idx], contrib, memory_order_relaxed);
+}
+
+kernel void flow_reduce_hist(
+    device atomic_float *histogram [[buffer(0)]],
+    device atomic_float *groupHistogram [[buffer(1)]],
+    constant FlowParams &p [[buffer(2)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= p.bins) { return; }
+    float sum = 0.0f;
+    uint offset = gid;
+    for (uint g = 0; g < p.groupCount; g++) {
+        sum += atomic_load_explicit(&groupHistogram[offset], memory_order_relaxed);
+        offset += p.bins;
+    }
+    if (sum != 0.0f) {
+        atomic_fetch_add_explicit(&histogram[gid], sum, memory_order_relaxed);
     }
 }
