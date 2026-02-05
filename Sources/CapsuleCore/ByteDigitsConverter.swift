@@ -5,6 +5,15 @@ public enum ByteDigitsConverter {
     public static func toDigits(bytes: [UInt8], baseB: Int) -> [Int] {
         precondition(baseB >= 2)
         let nDigits = requiredDigitsCount(byteCount: bytes.count, baseB: baseB)
+
+        // Fast path: base-256 -> base-256 is identity.
+        if baseB == 256 {
+            let converted = bytes.map { Int($0) }
+            if converted.count >= nDigits { return Array(converted.suffix(nDigits)) }
+            let padding = Array(repeating: 0, count: nDigits - converted.count)
+            return padding + converted
+        }
+
         let converted = convertBase(input: bytes.map { Int($0) }, fromBase: 256, toBase: baseB)
         // converted is MSD-first; pad with leading zeros to fixed length
         if converted.count >= nDigits { return converted.suffix(nDigits).map { $0 } }
@@ -15,6 +24,19 @@ public enum ByteDigitsConverter {
     // Converts base-B digits (MSD-first) back to exact byteCount bytes.
     public static func toBytes(digitsMSDFirst: [Int], baseB: Int, byteCount: Int) -> [UInt8] {
         precondition(baseB >= 2)
+
+        // Fast path: base-256 -> base-256 is identity.
+        if baseB == 256 {
+            let trimmed = dropLeadingZeros(digitsMSDFirst)
+            let padded: [Int]
+            if trimmed.count >= byteCount {
+                padded = Array(trimmed.suffix(byteCount))
+            } else {
+                padded = Array(repeating: 0, count: byteCount - trimmed.count) + trimmed
+            }
+            return padded.map { UInt8(truncatingIfNeeded: $0) }
+        }
+
         let trimmed = dropLeadingZeros(digitsMSDFirst)
         let bytesInt = convertBase(input: trimmed, fromBase: baseB, toBase: 256)
         // bytesInt is MSD-first; pad with leading zeros to reach exact byteCount
@@ -29,6 +51,9 @@ public enum ByteDigitsConverter {
 
     public static func requiredDigitsCount(byteCount: Int, baseB: Int) -> Int {
         guard byteCount > 0 else { return 1 }
+        if baseB == 256 {
+            return byteCount
+        }
         // ceil(byteCount * log256 / logB)
         let x = Double(byteCount) * log(256.0) / log(Double(baseB))
         return Int(ceil(x))

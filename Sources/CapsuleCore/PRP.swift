@@ -3,8 +3,14 @@ import CryptoKit
 import SharedInfrastructure
 
 public enum PRP {
-    // Applies Feistel network over the payload (bytes after header), leaving header intact.
+    // Applies a pseudo-random permutation (PRP) over the payload (bytes after header), leaving header intact.
     public static func apply(inoutBytes bytes: inout [UInt8], config: ConfigRoot.Capsule) {
+        let mode = config.prp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if mode.isEmpty || mode == "none" {
+            return
+        }
+        precondition(mode == "feistel", "Unsupported capsule.prp='\(config.prp)'. Supported: none|feistel")
+
         let start = CapsuleHeader.byteCount
         guard bytes.count > start else { return }
         let key = deriveKey(fromHex: config.keyHex)
@@ -31,8 +37,14 @@ public enum PRP {
         bytes.replaceSubrange(start..<bytes.count, with: out)
     }
 
-    // Inverse Feistel over the payload; header remains intact.
+    // Inverse PRP over the payload; header remains intact.
     public static func inverse(inoutBytes bytes: inout [UInt8], config: ConfigRoot.Capsule) {
+        let mode = config.prp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if mode.isEmpty || mode == "none" {
+            return
+        }
+        precondition(mode == "feistel", "Unsupported capsule.prp='\(config.prp)'. Supported: none|feistel")
+
         let start = CapsuleHeader.byteCount
         guard bytes.count > start else { return }
         let key = deriveKey(fromHex: config.keyHex)

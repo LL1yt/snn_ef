@@ -199,8 +199,15 @@ public final class FlowLearningLoop {
         )
         precondition(params.gains.count == flowConfig.bins, "gains count must match bins")
 
-        // Decide whether we need slow path (per-step events/traces) for UI payload
-        let needsUILog = emitLog && (epoch % max(1, learningConfig.logEveryUI) == 0)
+        // Decide which log payloads to emit.
+        // - needsTraceLog triggers the slow path (per-step events/traces), so keep it rare.
+        // - needsMetricsLog is served by the fast path.
+        let needsMetricsLog = emitLog && (epoch % max(1, learningConfig.logEvery) == 0)
+        let needsTraceLog = emitLog && (
+            (learningConfig.logEveryUI <= 1)
+                || (epoch > 0 && (epoch % learningConfig.logEveryUI == 0))
+        )
+        let needsAnyLogPayload = needsMetricsLog || needsTraceLog
 
         var allCompletions: [CompletionEvent] = []
         var totalSpikes: UInt32 = 0
@@ -211,17 +218,21 @@ public final class FlowLearningLoop {
         var gpuMeanRadialMiss: Float? = nil
         var gpuBoundaryLoss: Float? = nil
         var gpuLearningScalars: FlowLearningScalars? = nil
-        let inputHistogram: [Float]? = needsUILog ? HistogramBuilder.fromEnergies(energies, bins: flowConfig.bins) : nil
+        let inputHistogram: [Float]? = needsAnyLogPayload ? HistogramBuilder.fromEnergies(energies, bins: flowConfig.bins) : nil
 
         // Initial bins for alignment weight (dense by seed index; store -1 when unknown)
         var initialBinsByIndex = [Int32](repeating: -1, count: seeds.count)
-        var initialBinsByID: [Int: Int] = [:]
-        initialBinsByID.reserveCapacity(seeds.count)
+        let layout = flowConfig.seedLayout.lowercased()
+        let seedCount = max(1, seeds.count)
         for (idx, seed) in seeds.enumerated() {
-            let theta = atan2(seed.pos.y, seed.pos.x)
-            let binIdx = FlowProjector.binIndex(theta: theta, bins: flowConfig.bins)
+            let binIdx: Int
+            if layout == "ring" {
+                binIdx = (idx * flowConfig.bins) / seedCount
+            } else {
+                let theta = atan2(seed.pos.y, seed.pos.x)
+                binIdx = FlowProjector.binIndex(theta: theta, bins: flowConfig.bins)
+            }
             initialBinsByIndex[idx] = Int32(binIdx)
-            initialBinsByID[seed.id] = binIdx
         }
 
         // Slow path: per-step events + trace collection (UI only)
@@ -230,7 +241,7 @@ public final class FlowLearningLoop {
         var pathPoints: [Int: [PathPoint]] = [:]
         var predictedBins: [Int]? = nil
         var projectedHistogram: [Float]? = nil
-        if needsUILog {
+        if needsTraceLog {
             // If gains were updated on GPU in prior epochs, sync them back before CPU stepping.
             if gainsLiveOnGPU {
                 params.gains = router.readGainsFromGPU()
@@ -288,13 +299,20 @@ public final class FlowLearningLoop {
                     precondition(event.id >= 0 && event.id < lastPosByID.count, "event id out of range for lastPosByID")
                     lastPosByID[event.id] = event.pos
                     if let bin = event.projectedBin {
+                        let initialBinIndex: Int?
+                        if event.id >= 0 && event.id < initialBinsByIndex.count {
+                            let v = Int(initialBinsByIndex[event.id])
+                            initialBinIndex = v >= 0 ? v : nil
+                        } else {
+                            initialBinIndex = nil
+                        }
                         let completion = CompletionEvent(
                             particleID: event.id,
                             binIndex: bin,
                             position: event.pos,
                             energy: event.energy,
                             spiked: event.spiked,
-                            initialBinIndex: initialBinsByID[event.id]
+                            initialBinIndex: initialBinIndex
                         )
                         allCompletions.append(completion)
                     }
@@ -396,8 +414,9 @@ public final class FlowLearningLoop {
                     includeHistogram: false,
                     learning: learningReq,
                     useExistingGains: useExisting,
-                    // Optimization: when using GPU learning scalars + GPU gain updates, do not read back yHat.
-                    includeWeightedYHatReadback: false
+                    // Optimization: when using GPU learning scalars + GPU gain updates, do not read back yHat,
+                    // unless we need it for a metrics log payload.
+                    includeWeightedYHatReadback: needsMetricsLog
                 )
                 gainsLiveOnGPU = true
             } else {
@@ -552,7 +571,7 @@ public final class FlowLearningLoop {
                 histogramMatchL2 = nil
                 histogramMatchCosine = nil
             }
-            if needsUILog, let retriever, !yHatNorm.isEmpty {
+            if needsTraceLog, let retriever, !yHatNorm.isEmpty {
                 retrievalResult = retriever.retrieve(normalized: yHatNorm).first
             } else {
                 retrievalResult = nil
@@ -668,7 +687,7 @@ public final class FlowLearningLoop {
         )
 
 #if canImport(SharedInfrastructure)
-        if needsUILog {
+        if needsTraceLog {
             let traces = trackedIDs.compactMap { id -> LearningLogPayload.Trace? in
                 guard let steps = traceSteps[id] else { return nil }
                 return LearningLogPayload.Trace(id: id, steps: steps)
@@ -693,6 +712,31 @@ public final class FlowLearningLoop {
                 retrieval: retrievalResult,
                 traces: traces,
                 paths: paths
+            )
+        } else if needsMetricsLog {
+            // In GPU learning mode gains can be updated in-place on GPU; sync them back for accurate logging.
+            var paramsForLog = params
+            if gainsLiveOnGPU {
+                paramsForLog.gains = router.readGainsFromGPU()
+            }
+            let emptyTraces: [LearningLogPayload.Trace] = []
+            let emptyPaths: [LearningLogPayload.Path] = []
+            emitLearningLog(
+                epoch: epoch,
+                metrics: metrics,
+                params: paramsForLog,
+                yHat: yHat,
+                targets: targets,
+                inputText: nil,
+                answerText: nil,
+                predictedBins: nil,
+                projectedHistogram: nil,
+                inputHistogram: inputHistogram,
+                outputHistogram: (yHat.count == flowConfig.bins) ? yHat : nil,
+                targetHistogram: (targets.count == flowConfig.bins) ? targets : nil,
+                retrieval: nil,
+                traces: emptyTraces,
+                paths: emptyPaths
             )
         }
 #endif
