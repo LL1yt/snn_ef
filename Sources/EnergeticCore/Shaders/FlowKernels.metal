@@ -33,6 +33,8 @@ struct FlowParams {
     float aggBeta;
     float aggGamma;
     float aggTau;
+    // Perf: when 0, do not write per-particle completion record buffers (only counters/aggregates).
+    uint recordCompletions;
 };
 
 static inline uint mix32(uint v) {
@@ -350,17 +352,21 @@ kernel void flow_step_train(
             float theta = atan2(py, px);
             int b = binIndex(theta, p.bins);
 
-            // Record completion exactly once per particle index.
-            if (completionWritten[gid] == 0) {
-                completionWritten[gid] = 1;
-                completionID[gid] = id;
-                completionBin[gid] = b;
-                completionPosX[gid] = px;
-                completionPosY[gid] = py;
-                completionEnergy[gid] = e;
-                completionSpiked[gid] = spiked ? 1 : 0;
-                completionInitialBin[gid] = initialBinByIndex[gid];
-                atomic_fetch_add_explicit(&groupCompletionCounts[groupId], 1u, memory_order_relaxed);
+            atomic_fetch_add_explicit(&groupCompletionCounts[groupId], 1u, memory_order_relaxed);
+
+            // Optional per-particle completion record (can be disabled to reduce memory traffic).
+            if (p.recordCompletions != 0) {
+                // Record completion exactly once per particle index.
+                if (completionWritten[gid] == 0) {
+                    completionWritten[gid] = 1;
+                    completionID[gid] = id;
+                    completionBin[gid] = b;
+                    completionPosX[gid] = px;
+                    completionPosY[gid] = py;
+                    completionEnergy[gid] = e;
+                    completionSpiked[gid] = spiked ? 1 : 0;
+                    completionInitialBin[gid] = initialBinByIndex[gid];
+                }
             }
 
             float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;

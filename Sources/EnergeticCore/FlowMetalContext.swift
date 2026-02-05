@@ -34,6 +34,7 @@ struct FlowMetalParams {
     var aggBeta: Float
     var aggGamma: Float
     var aggTau: Float
+    var recordCompletions: UInt32
 }
 
 final class FlowMetalContext {
@@ -223,7 +224,8 @@ final class FlowMetalContext {
             aggAlpha: 1,
             aggBeta: 1,
             aggGamma: 1,
-            aggTau: 1
+            aggTau: 1,
+            recordCompletions: 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -420,7 +422,8 @@ final class FlowMetalContext {
             aggAlpha: 1,
             aggBeta: 1,
             aggGamma: 1,
-            aggTau: 1
+            aggTau: 1,
+            recordCompletions: 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -483,7 +486,8 @@ final class FlowMetalContext {
             aggAlpha: 1,
             aggBeta: 1,
             aggGamma: 1,
-            aggTau: 1
+            aggTau: 1,
+            recordCompletions: 0
         )
 
         guard let finalEnc = cmd.makeComputeCommandEncoder() else {
@@ -646,9 +650,9 @@ final class FlowMetalContext {
         }
 
         // Completion buffers init
-        // Note: completionWritten MUST be cleared every run because it gates per-particle completion recording/counting.
-        fillBuffer(completionWrittenBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
+        // If includeCompletions=false, GPU also skips writing completion records (recordCompletions=0), so we avoid clears.
         if includeCompletions {
+            fillBuffer(completionWrittenBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
             fillBuffer(completionSpikedBuffer!, value: 0, length: count * MemoryLayout<UInt8>.stride)
             fillBuffer(completionIDBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
             fillBuffer(completionBinBuffer!, value: 0xFF, length: count * MemoryLayout<Int32>.stride)
@@ -688,7 +692,8 @@ final class FlowMetalContext {
             aggAlpha: wantsWeightedYHat ? (aggregator!.alpha) : 1,
             aggBeta: wantsWeightedYHat ? (aggregator!.beta) : 1,
             aggGamma: wantsWeightedYHat ? (aggregator!.gamma) : 1,
-            aggTau: wantsWeightedYHat ? (aggregator!.tau) : 1
+            aggTau: wantsWeightedYHat ? (aggregator!.tau) : 1,
+            recordCompletions: includeCompletions ? 1 : 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -775,7 +780,8 @@ final class FlowMetalContext {
             aggAlpha: 1,
             aggBeta: 1,
             aggGamma: 1,
-            aggTau: 1
+            aggTau: 1,
+            recordCompletions: 0
         )
 
         if let finalEnc = cmd.makeComputeCommandEncoder() {
@@ -1016,7 +1022,8 @@ final class FlowMetalContext {
             aggAlpha: 1,
             aggBeta: 1,
             aggGamma: 1,
-            aggTau: 1
+            aggTau: 1,
+            recordCompletions: 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),

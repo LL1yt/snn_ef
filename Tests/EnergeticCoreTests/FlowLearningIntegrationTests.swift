@@ -66,6 +66,54 @@ final class FlowLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(summary.boundaryLoss, boundaryCPU, accuracy: 1e-3)
     }
 
+    func testGPUWeightedYHatWithoutCompletionsReadback() {
+        let flowCfg = FlowConfig(
+            T: 40,
+            radius: 6.0,
+            bins: 8,
+            seedLayout: "ring",
+            seedRadius: 1.0,
+            finalWeightPower: 1.0,
+            lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
+            dynamics: .init(radialBias: 0.25, spikeKick: 0.5, gainSpikeKickScale: 0.0, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.97, energyFloor: 1e-5, energySpikeGain: 0.0, energyGainBias: 0.0, energyCap: 0.0)
+        )
+        let agg = AggregatorConfig(
+            sigmaR: 2.5,
+            sigmaE: 5.0,
+            alpha: 1.0,
+            beta: 1.0,
+            gamma: 0.5,
+            tau: 1.0,
+            radius: flowCfg.radius
+        )
+        let router = FlowRouter(cfg: flowCfg, seed: 123)
+
+        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let targets = TargetLoader.fromCapsuleDigits(energies: energies, bins: flowCfg.bins)
+        let seeds = FlowSeeds.makeSeeds(energies: energies, layout: flowCfg.seedLayout, radius: flowCfg.seedRadius, bins: flowCfg.bins)
+
+        var initialBins: [Int32] = []
+        initialBins.reserveCapacity(seeds.count)
+        for s in seeds {
+            let theta = atan2(s.pos.y, s.pos.x)
+            initialBins.append(Int32(FlowProjector.binIndex(theta: theta, bins: flowCfg.bins)))
+        }
+
+        let gains = [Float](repeating: 1.0, count: flowCfg.bins)
+        let summary = router.simulateWithCompletions(
+            initial: seeds,
+            gains: gains,
+            steps: 40,
+            initialBins: initialBins,
+            targetsRaw: targets,
+            aggregator: agg,
+            includeCompletions: false
+        )
+
+        XCTAssertNotNil(summary.weightedYHat)
+        XCTAssertTrue(summary.completions.isEmpty)
+    }
+
     func testGPUWeightedYHatMatchesCPUAggregator() {
         let flowCfg = FlowConfig(
             T: 20,
