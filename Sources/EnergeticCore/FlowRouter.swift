@@ -76,4 +76,43 @@ public final class FlowRouter {
             includeHistogram: includeHistogram
         )
     }
+
+    // Internal: request additional GPU-computed learning scalars and optional gains update.
+    func simulateWithCompletionsLearningGPU(
+        initial particles: [FlowParticle],
+        gains: [Float]? = nil,
+        steps: Int,
+        initialBins: [Int32]? = nil,
+        targetsRaw: [Float]? = nil,
+        aggregator: AggregatorConfig? = nil,
+        includeCompletions: Bool = true,
+        includeHistogram: Bool = true,
+        learning: FlowMetalLearningRequest,
+        useExistingGains: Bool = false,
+        includeWeightedYHatReadback: Bool = true
+    ) -> FlowSimulationSummary {
+        return metal.simulateWithCompletions(
+            initial: particles,
+            cfg: cfg,
+            baseSeed: baseSeed,
+            gains: gains,
+            steps: steps,
+            initialBinsByIndex: initialBins,
+            targetsRaw: targetsRaw,
+            aggregator: aggregator,
+            includeCompletions: includeCompletions,
+            includeHistogram: includeHistogram,
+            learning: learning,
+            useExistingGains: useExistingGains,
+            includeWeightedYHatReadback: includeWeightedYHatReadback
+        )
+    }
+
+    func uploadGainsToGPU(_ gains: [Float]) {
+        metal.uploadGains(gains, bins: cfg.bins)
+    }
+
+    func readGainsFromGPU() -> [Float] {
+        return metal.readGains(bins: cfg.bins)
+    }
 }

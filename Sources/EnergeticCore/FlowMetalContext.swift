@@ -38,6 +38,58 @@ struct FlowMetalParams {
     var recordHistogram: UInt32
 }
 
+private struct FlowLearningParamsMetal {
+    var bins: UInt32
+    var wrongCount: UInt32
+    var optionCount: UInt32
+    var correctIndex: Int32
+    var doUpdateGains: UInt32
+
+    var gainLearningRate: Float
+    var gainMin: Float
+    var gainMax: Float
+    var errorPower: Float
+    var errorScale: Float
+
+    var lambdaG: Float
+    var negativeWeight: Float
+    var negativeMargin: Float
+}
+
+private struct FlowLearningScalarsMetal {
+    var yHatMean: Float
+    var yHatVariance: Float
+    var yHatMin: Float
+    var yHatMax: Float
+    var nonzeroBins: Float
+
+    var binLoss: Float
+    var negativeLoss: Float
+    var histogramMatchL1: Float
+    var optionAccuracy: Float
+
+    var gainDeltaMean: Float
+    var gainDeltaVariance: Float
+}
+
+struct FlowMetalLearningRequest {
+    var targetNorm: [Float]
+    var wrongTargetsNorm: [[Float]]
+    var optionTargetsRaw: [[Float]]
+    var correctIndex: Int?
+
+    var doUpdateGains: Bool
+    var gainLearningRate: Float
+    var gainBounds: (min: Float, max: Float)
+    var errorPower: Float
+    var errorScale: Float
+    var lambdaG: Float
+    var negativeWeight: Float
+    var negativeMargin: Float
+
+    static let maxAuxTargetCount: Int = 8
+}
+
 final class FlowMetalContext {
     static var lastInitError: String?
     let device: MTLDevice
@@ -47,6 +99,7 @@ final class FlowMetalContext {
     private let finalPipeline: MTLComputePipelineState
     private let reducePipeline: MTLComputePipelineState
     private let finalizeWeightedYHatPipeline: MTLComputePipelineState
+    private let learningFinalizePipeline: MTLComputePipelineState
 
     private var particleCapacity: Int = 0
     private var binsCapacity: Int = 0
@@ -86,6 +139,12 @@ final class FlowMetalContext {
     private var groupWeightedSumBuffer: MTLBuffer?
     private var groupWeightSumBuffer: MTLBuffer?
 
+    // GPU learning finalize inputs/outputs (optional)
+    private var targetNormBuffer: MTLBuffer?
+    private var wrongTargetsNormBuffer: MTLBuffer?
+    private var optionTargetsRawBuffer: MTLBuffer?
+    private var learningScalarsBuffer: MTLBuffer?
+
     // Scalar learning metrics (GPU reduced)
     private var radialMissSumBuffer: MTLBuffer?
     private var boundaryLossSumBuffer: MTLBuffer?
@@ -97,6 +156,8 @@ final class FlowMetalContext {
     private var groupCompletionCountBuffer: MTLBuffer?
 
     private var groupCounterCapacity: Int = 0
+
+    private var validGainsBins: Int? = nil
 
     init?() {
         FlowMetalContext.lastInitError = nil
@@ -139,8 +200,9 @@ final class FlowMetalContext {
               let trainStepFunction = library.makeFunction(name: "flow_step_train"),
               let finalFunction = library.makeFunction(name: "flow_project_final"),
               let reduceFunction = library.makeFunction(name: "flow_reduce_hist"),
-              let finalizeFunction = library.makeFunction(name: "flow_finalize_weighted_yhat") else {
-            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_step_train/flow_project_final/flow_reduce_hist/flow_finalize_weighted_yhat in library"
+              let finalizeFunction = library.makeFunction(name: "flow_finalize_weighted_yhat"),
+              let learningFinalizeFunction = library.makeFunction(name: "flow_learning_finalize") else {
+            FlowMetalContext.lastInitError = "Missing Metal functions flow_step/flow_step_train/flow_project_final/flow_reduce_hist/flow_finalize_weighted_yhat/flow_learning_finalize in library"
             return nil
         }
         do {
@@ -149,6 +211,7 @@ final class FlowMetalContext {
             self.finalPipeline = try device.makeComputePipelineState(function: finalFunction)
             self.reducePipeline = try device.makeComputePipelineState(function: reduceFunction)
             self.finalizeWeightedYHatPipeline = try device.makeComputePipelineState(function: finalizeFunction)
+            self.learningFinalizePipeline = try device.makeComputePipelineState(function: learningFinalizeFunction)
         } catch {
             FlowMetalContext.lastInitError = "makeComputePipelineState failed: \(error)"
             return nil
@@ -194,9 +257,11 @@ final class FlowMetalContext {
         if let gains, gains.count == cfg.bins {
             gainsCount = UInt32(gains.count)
             writeArray(gains, to: gainsBuffer!, count: gains.count)
+            validGainsBins = cfg.bins
         } else {
             let one: [Float] = [1.0]
             writeArray(one, to: gainsBuffer!, count: 1)
+            validGainsBins = nil
         }
 
         let params = FlowMetalParams(
@@ -393,9 +458,11 @@ final class FlowMetalContext {
         if let gains, gains.count == cfg.bins {
             gainsCount = UInt32(gains.count)
             writeArray(gains, to: gainsBuffer!, count: gains.count)
+            validGainsBins = cfg.bins
         } else {
             let one: [Float] = [1.0]
             writeArray(one, to: gainsBuffer!, count: 1)
+            validGainsBins = nil
         }
 
         var stepParams = FlowMetalParams(
@@ -548,7 +615,10 @@ final class FlowMetalContext {
         targetsRaw: [Float]? = nil,
         aggregator: AggregatorConfig? = nil,
         includeCompletions: Bool = true,
-        includeHistogram: Bool = true
+        includeHistogram: Bool = true,
+        learning: FlowMetalLearningRequest? = nil,
+        useExistingGains: Bool = false,
+        includeWeightedYHatReadback: Bool = true
     ) -> FlowSimulationSummary {
         let token = LoggingHub.beginSignpost("flow.learn.run")
         let count = particles.count
@@ -630,12 +700,18 @@ final class FlowMetalContext {
 
         // Gains
         var gainsCount: UInt32 = 0
-        if let gains, gains.count == cfg.bins {
+        if useExistingGains {
+            precondition(gains == nil, "useExistingGains requires gains to be nil")
+            precondition(validGainsBins == cfg.bins, "useExistingGains requested but gainsBuffer has not been initialized for bins=\(cfg.bins)")
+            gainsCount = UInt32(cfg.bins)
+        } else if let gains, gains.count == cfg.bins {
             gainsCount = UInt32(gains.count)
             writeArray(gains, to: gainsBuffer!, count: gains.count)
+            validGainsBins = cfg.bins
         } else {
             let one: [Float] = [1.0]
             writeArray(one, to: gainsBuffer!, count: 1)
+            validGainsBins = nil
         }
 
         let wantsWeightedYHat =
@@ -876,6 +952,74 @@ final class FlowMetalContext {
                 finalizeEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
                 finalizeEnc.endEncoding()
             }
+
+            if let learning {
+                precondition(learning.targetNorm.count == cfg.bins, "targetNorm must match bins")
+                precondition(learning.wrongTargetsNorm.count <= FlowMetalLearningRequest.maxAuxTargetCount, "wrongTargetsNorm exceeds maxAuxTargetCount")
+                precondition(learning.optionTargetsRaw.count <= FlowMetalLearningRequest.maxAuxTargetCount, "optionTargetsRaw exceeds maxAuxTargetCount")
+
+                writeArray(learning.targetNorm, to: targetNormBuffer!, count: cfg.bins)
+
+                // Flatten wrong targets
+                if !learning.wrongTargetsNorm.isEmpty {
+                    var flat: [Float] = []
+                    flat.reserveCapacity(learning.wrongTargetsNorm.count * cfg.bins)
+                    for row in learning.wrongTargetsNorm {
+                        precondition(row.count == cfg.bins, "wrongTargetsNorm row must match bins")
+                        flat.append(contentsOf: row)
+                    }
+                    writeArray(flat, to: wrongTargetsNormBuffer!, count: flat.count)
+                } else {
+                    let zero: [Float] = [0]
+                    writeArray(zero, to: wrongTargetsNormBuffer!, count: 1)
+                }
+
+                // Flatten option targets (raw)
+                if !learning.optionTargetsRaw.isEmpty {
+                    var flat: [Float] = []
+                    flat.reserveCapacity(learning.optionTargetsRaw.count * cfg.bins)
+                    for row in learning.optionTargetsRaw {
+                        precondition(row.count == cfg.bins, "optionTargetsRaw row must match bins")
+                        flat.append(contentsOf: row)
+                    }
+                    writeArray(flat, to: optionTargetsRawBuffer!, count: flat.count)
+                } else {
+                    let zero: [Float] = [0]
+                    writeArray(zero, to: optionTargetsRawBuffer!, count: 1)
+                }
+
+                let lp = FlowLearningParamsMetal(
+                    bins: UInt32(cfg.bins),
+                    wrongCount: UInt32(learning.wrongTargetsNorm.count),
+                    optionCount: UInt32(learning.optionTargetsRaw.count),
+                    correctIndex: Int32(learning.correctIndex ?? -1),
+                    doUpdateGains: learning.doUpdateGains ? 1 : 0,
+                    gainLearningRate: learning.gainLearningRate,
+                    gainMin: learning.gainBounds.min,
+                    gainMax: learning.gainBounds.max,
+                    errorPower: learning.errorPower,
+                    errorScale: learning.errorScale,
+                    lambdaG: learning.lambdaG,
+                    negativeWeight: learning.negativeWeight,
+                    negativeMargin: learning.negativeMargin
+                )
+
+                if let learnEnc = cmd.makeComputeCommandEncoder() {
+                    learnEnc.setComputePipelineState(learningFinalizePipeline)
+                    learnEnc.setBuffer(weightedYHatBuffer, offset: 0, index: 0)
+                    learnEnc.setBuffer(gainsBuffer, offset: 0, index: 1)
+                    learnEnc.setBuffer(targetNormBuffer, offset: 0, index: 2)
+                    learnEnc.setBuffer(wrongTargetsNormBuffer, offset: 0, index: 3)
+                    learnEnc.setBuffer(optionTargetsRawBuffer, offset: 0, index: 4)
+                    learnEnc.setBuffer(learningScalarsBuffer, offset: 0, index: 5)
+                    var params = lp
+                    learnEnc.setBytes(&params, length: MemoryLayout<FlowLearningParamsMetal>.stride, index: 6)
+                    let threadsPerThreadgroup = MTLSize(width: 1, height: 1, depth: 1)
+                    let threads = MTLSize(width: 1, height: 1, depth: 1)
+                    learnEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
+                    learnEnc.endEncoding()
+                }
+            }
         }
 
         // Reduce scalar metrics (sum across stepGroupCount into 1 float each)
@@ -919,10 +1063,44 @@ final class FlowMetalContext {
         }
 
         let weightedYHat: [Float]?
-        if wantsWeightedYHat {
+        if wantsWeightedYHat, includeWeightedYHatReadback {
             weightedYHat = readArray(from: weightedYHatBuffer!, count: cfg.bins)
         } else {
             weightedYHat = nil
+        }
+
+        let learningScalars: FlowLearningScalars?
+        if wantsWeightedYHat, learning != nil {
+            let scalarsArr: [FlowLearningScalarsMetal] = readArray(from: learningScalarsBuffer!, count: 1)
+            let s = scalarsArr.first ?? FlowLearningScalarsMetal(
+                yHatMean: 0,
+                yHatVariance: 0,
+                yHatMin: 0,
+                yHatMax: 0,
+                nonzeroBins: 0,
+                binLoss: 0,
+                negativeLoss: 0,
+                histogramMatchL1: 0,
+                optionAccuracy: -1,
+                gainDeltaMean: 0,
+                gainDeltaVariance: 0
+            )
+            let optionAcc: Float? = (s.optionAccuracy >= 0) ? s.optionAccuracy : nil
+            learningScalars = FlowLearningScalars(
+                yHatStatsMean: s.yHatMean,
+                yHatStatsVariance: s.yHatVariance,
+                yHatStatsMin: s.yHatMin,
+                yHatStatsMax: s.yHatMax,
+                nonzeroBins: Int((s.nonzeroBins).rounded()),
+                binLoss: s.binLoss,
+                negativeLoss: s.negativeLoss,
+                histogramMatchL1: s.histogramMatchL1,
+                optionAccuracy: optionAcc,
+                gainDeltaMean: s.gainDeltaMean,
+                gainDeltaVariance: s.gainDeltaVariance
+            )
+        } else {
+            learningScalars = nil
         }
 
         let groupSpikes: [UInt32] = readArray(from: groupSpikeCountBuffer!, count: stepGroupCount)
@@ -987,7 +1165,8 @@ final class FlowMetalContext {
             completions: completions,
             meanRadialMiss: meanRadialMiss,
             boundaryLoss: boundaryLoss,
-            weightedYHat: weightedYHat
+            weightedYHat: weightedYHat,
+            learningScalars: learningScalars
         )
     }
 
@@ -1020,9 +1199,11 @@ final class FlowMetalContext {
         if let gains, gains.count == cfg.bins {
             gainsCount = UInt32(gains.count)
             writeArray(gains, to: gainsBuffer!, count: gains.count)
+            validGainsBins = cfg.bins
         } else {
             let one: [Float] = [1.0]
             writeArray(one, to: gainsBuffer!, count: 1)
+            validGainsBins = nil
         }
 
         let params = FlowMetalParams(
@@ -1100,6 +1281,19 @@ final class FlowMetalContext {
         state.truncate(to: 0)
     }
 
+    func uploadGains(_ gains: [Float], bins: Int) {
+        precondition(gains.count == bins, "gains count must match bins")
+        ensureBinsCapacity(bins)
+        writeArray(gains, to: gainsBuffer!, count: bins)
+        validGainsBins = bins
+    }
+
+    func readGains(bins: Int) -> [Float] {
+        precondition(validGainsBins == bins, "gainsBuffer not initialized for bins=\(bins)")
+        ensureBinsCapacity(bins)
+        return readArray(from: gainsBuffer!, count: bins)
+    }
+
     private func ensureParticleCapacity(_ count: Int) {
         let needsResize = count > particleCapacity
         let needsAlloc = (idsBuffer == nil)
@@ -1161,6 +1355,10 @@ final class FlowMetalContext {
             || (weightedSumBuffer == nil)
             || (weightSumBuffer == nil)
             || (weightedYHatBuffer == nil)
+            || (targetNormBuffer == nil)
+            || (wrongTargetsNormBuffer == nil)
+            || (optionTargetsRawBuffer == nil)
+            || (learningScalarsBuffer == nil)
         guard needsResize || needsAlloc else { return }
 
         if needsResize {
@@ -1177,6 +1375,14 @@ final class FlowMetalContext {
         weightedSumBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
         weightSumBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
         weightedYHatBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+
+        // GPU learning finalize buffers
+        targetNormBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        // Fixed upper bound to avoid reallocations; kernel also uses this bound.
+        let auxCount = FlowMetalLearningRequest.maxAuxTargetCount
+        wrongTargetsNormBuffer = device.makeBuffer(length: binsCapacity * auxCount * MemoryLayout<Float>.stride, options: .storageModeShared)
+        optionTargetsRawBuffer = device.makeBuffer(length: binsCapacity * auxCount * MemoryLayout<Float>.stride, options: .storageModeShared)
+        learningScalarsBuffer = device.makeBuffer(length: MemoryLayout<FlowLearningScalarsMetal>.stride, options: .storageModeShared)
     }
 
     private func ensureGroupHistogramCapacity(groupCount: Int, bins: Int) {

@@ -493,3 +493,219 @@ kernel void flow_finalize_weighted_yhat(
     float w = atomic_load_explicit(&sumW[gid], memory_order_relaxed);
     yHat[gid] = (w > eps) ? (we / w) : 0.0f;
 }
+
+struct FlowLearningParams {
+    uint bins;
+    uint wrongCount;
+    uint optionCount;
+    int correctIndex;          // -1 when not provided
+    uint doUpdateGains;        // 0/1
+
+    float gainLearningRate;
+    float gainMin;
+    float gainMax;
+    float errorPower;
+    float errorScale;
+
+    float lambdaG;
+    float negativeWeight;
+    float negativeMargin;
+};
+
+struct FlowLearningScalars {
+    float yHatMean;
+    float yHatVariance;
+    float yHatMin;
+    float yHatMax;
+    float nonzeroBins;
+
+    float binLoss;
+    float negativeLoss;
+    float histogramMatchL1;
+    float optionAccuracy;      // -1 when not provided
+
+    float gainDeltaMean;
+    float gainDeltaVariance;
+};
+
+static inline float gainScaleFromDiff(float diff, float errorPower, float errorScale) {
+    float absDiff = fabs(diff);
+    if (absDiff <= 0.0f) { return 0.0f; }
+    float p = max(0.0f, errorPower - 1.0f);
+    return errorScale * pow(absDiff, p);
+}
+
+kernel void flow_learning_finalize(
+    device const float *yHatRaw [[buffer(0)]],
+    device float *gains [[buffer(1)]],
+    device const float *targetNorm [[buffer(2)]],
+    device const float *wrongTargetsNorm [[buffer(3)]],
+    device const float *optionTargetsRaw [[buffer(4)]],
+    device FlowLearningScalars *out [[buffer(5)]],
+    constant FlowLearningParams &lp [[buffer(6)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid != 0) { return; }
+
+    const uint bins = lp.bins;
+    const float eps = 1e-8f;
+
+    // yHat stats (raw)
+    float sumY = 0.0f;
+    float sumYSq = 0.0f;
+    float minY = INFINITY;
+    float maxY = 0.0f;
+    float nonzero = 0.0f;
+    for (uint b = 0; b < bins; b++) {
+        float v = yHatRaw[b];
+        sumY += v;
+        sumYSq += v * v;
+        minY = min(minY, v);
+        maxY = max(maxY, v);
+        if (v > 0.0f) { nonzero += 1.0f; }
+    }
+    if (bins == 0) {
+        minY = 0.0f;
+        maxY = 0.0f;
+    } else if (!isfinite(minY)) {
+        // e.g. bins>0 but all values were NaN/Inf
+        minY = 0.0f;
+    }
+
+    float meanY = bins > 0 ? (sumY / float(bins)) : 0.0f;
+    float varY = bins > 0 ? (sumYSq / float(bins) - meanY * meanY) : 0.0f;
+    varY = max(0.0f, varY);
+
+    // Normalize yHat for loss computations (match Swift normalizeBins: if sum<=0, return original)
+    float invSumY = (sumY > 0.0f) ? (1.0f / max(sumY, eps)) : 1.0f;
+
+    // Bin loss + histogram match (L1 over normalized bins)
+    float lossBins = 0.0f;
+    float l1 = 0.0f;
+    float regTerm = 0.0f;
+
+    for (uint b = 0; b < bins; b++) {
+        float yN = yHatRaw[b] * invSumY;
+        float tN = targetNorm[b];
+        float diff = yN - tN;
+        lossBins += diff * diff;
+        l1 += fabs(diff);
+
+        float g = gains[b];
+        regTerm += g * g;
+    }
+
+    float binLoss = lossBins + lp.lambdaG * regTerm;
+
+    // Negative margin loss (normalized)
+    float negativeBase = 0.0f;
+    if (lp.wrongCount > 0) {
+        for (uint j = 0; j < lp.wrongCount; j++) {
+            float sumSq = 0.0f;
+            uint base = j * bins;
+            for (uint b = 0; b < bins; b++) {
+                float yN = yHatRaw[b] * invSumY;
+                float d = yN - wrongTargetsNorm[base + b];
+                sumSq += d * d;
+            }
+            float dist = sqrt(sumSq);
+            float diff = max(0.0f, lp.negativeMargin - dist);
+            negativeBase += diff * diff;
+        }
+        negativeBase /= float(lp.wrongCount);
+    }
+    float negativeLoss = negativeBase * lp.negativeWeight;
+
+    // Option accuracy: argmin over L2(yHatRaw, optionTargetsRaw)
+    float optionAcc = -1.0f;
+    if (lp.optionCount > 0 && lp.correctIndex >= 0 && lp.correctIndex < int(lp.optionCount)) {
+        float bestDist = INFINITY;
+        int bestIdx = 0;
+        for (uint j = 0; j < lp.optionCount; j++) {
+            float sumSq = 0.0f;
+            uint base = j * bins;
+            for (uint b = 0; b < bins; b++) {
+                float d = yHatRaw[b] - optionTargetsRaw[base + b];
+                sumSq += d * d;
+            }
+            float dist = sqrt(sumSq);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestIdx = int(j);
+            }
+        }
+        optionAcc = (bestIdx == lp.correctIndex) ? 1.0f : 0.0f;
+    }
+
+    // Optional gains update (in-place) + delta stats (mean/variance)
+    float sumDelta = 0.0f;
+    float sumDeltaSq = 0.0f;
+
+    if (lp.doUpdateGains != 0 && bins > 0) {
+        // Precompute wrong distances for repulsion gating.
+        // Note: fixed upper bound to keep it simple; caller must ensure wrongCount <= 8.
+        float wrongDist[8];
+        for (uint k = 0; k < 8; k++) { wrongDist[k] = 0.0f; }
+
+        uint wc = min(lp.wrongCount, 8u);
+        for (uint j = 0; j < wc; j++) {
+            float sumSq = 0.0f;
+            uint base = j * bins;
+            for (uint b = 0; b < bins; b++) {
+                float yN = yHatRaw[b] * invSumY;
+                float d = yN - wrongTargetsNorm[base + b];
+                sumSq += d * d;
+            }
+            wrongDist[j] = sqrt(sumSq);
+        }
+
+        float perTargetScale = (lp.negativeWeight > 0.0f && wc > 0) ? (lp.negativeWeight / float(wc)) : 0.0f;
+
+        for (uint b = 0; b < bins; b++) {
+            float oldG = gains[b];
+            float yN = yHatRaw[b] * invSumY;
+            float tN = targetNorm[b];
+            float diff = yN - tN;
+            float scale = gainScaleFromDiff(diff, lp.errorPower, lp.errorScale);
+
+            float g = oldG - lp.gainLearningRate * (2.0f * diff * scale);
+            g = clamp(g, lp.gainMin, lp.gainMax);
+
+            // Repulsion
+            if (perTargetScale > 0.0f) {
+                for (uint j = 0; j < wc; j++) {
+                    if (lp.negativeMargin > 0.0f && wrongDist[j] >= lp.negativeMargin) { continue; }
+                    uint base = j * bins;
+                    float d2 = yN - wrongTargetsNorm[base + b];
+                    float scale2 = gainScaleFromDiff(d2, lp.errorPower, lp.errorScale);
+                    g += lp.gainLearningRate * perTargetScale * (2.0f * d2 * scale2);
+                    g = clamp(g, lp.gainMin, lp.gainMax);
+                }
+            }
+
+            gains[b] = g;
+            float delta = g - oldG;
+            sumDelta += delta;
+            sumDeltaSq += delta * delta;
+        }
+    }
+
+    float deltaMean = bins > 0 ? (sumDelta / float(bins)) : 0.0f;
+    float deltaVar = bins > 0 ? (sumDeltaSq / float(bins) - deltaMean * deltaMean) : 0.0f;
+    deltaVar = max(0.0f, deltaVar);
+
+    FlowLearningScalars s;
+    s.yHatMean = meanY;
+    s.yHatVariance = varY;
+    s.yHatMin = minY;
+    s.yHatMax = maxY;
+    s.nonzeroBins = nonzero;
+    s.binLoss = binLoss;
+    s.negativeLoss = negativeLoss;
+    s.histogramMatchL1 = l1;
+    s.optionAccuracy = optionAcc;
+    s.gainDeltaMean = deltaMean;
+    s.gainDeltaVariance = deltaVar;
+
+    out[0] = s;
+}

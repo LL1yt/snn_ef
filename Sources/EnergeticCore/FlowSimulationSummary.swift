@@ -23,6 +23,48 @@ public struct GPUCompletion: Sendable {
     }
 }
 
+public struct FlowLearningScalars: Sendable {
+    public let yHatStatsMean: Float
+    public let yHatStatsVariance: Float
+    public let yHatStatsMin: Float
+    public let yHatStatsMax: Float
+    public let nonzeroBins: Int
+
+    public let binLoss: Float
+    public let negativeLoss: Float
+    public let histogramMatchL1: Float
+    public let optionAccuracy: Float?
+
+    public let gainDeltaMean: Float
+    public let gainDeltaVariance: Float
+
+    public init(
+        yHatStatsMean: Float,
+        yHatStatsVariance: Float,
+        yHatStatsMin: Float,
+        yHatStatsMax: Float,
+        nonzeroBins: Int,
+        binLoss: Float,
+        negativeLoss: Float,
+        histogramMatchL1: Float,
+        optionAccuracy: Float?,
+        gainDeltaMean: Float,
+        gainDeltaVariance: Float
+    ) {
+        self.yHatStatsMean = yHatStatsMean
+        self.yHatStatsVariance = yHatStatsVariance
+        self.yHatStatsMin = yHatStatsMin
+        self.yHatStatsMax = yHatStatsMax
+        self.nonzeroBins = nonzeroBins
+        self.binLoss = binLoss
+        self.negativeLoss = negativeLoss
+        self.histogramMatchL1 = histogramMatchL1
+        self.optionAccuracy = optionAccuracy
+        self.gainDeltaMean = gainDeltaMean
+        self.gainDeltaVariance = gainDeltaVariance
+    }
+}
+
 /// Summary from one GPU-run used by the learning fast path.
 public struct FlowSimulationSummary: Sendable {
     /// Optional bins output.
@@ -49,6 +91,10 @@ public struct FlowSimulationSummary: Sendable {
     /// Present only when requested.
     public let weightedYHat: [Float]?
 
+    /// Optional GPU-computed learning scalars (losses/stats) based on `weightedYHat`.
+    /// Present only when explicitly requested by the caller.
+    public let learningScalars: FlowLearningScalars?
+
     public init(
         bins: [Float],
         spikeCount: UInt32,
@@ -57,7 +103,8 @@ public struct FlowSimulationSummary: Sendable {
         completions: [GPUCompletion],
         meanRadialMiss: Float = 0,
         boundaryLoss: Float = 0,
-        weightedYHat: [Float]? = nil
+        weightedYHat: [Float]? = nil,
+        learningScalars: FlowLearningScalars? = nil
     ) {
         self.bins = bins
         self.spikeCount = spikeCount
@@ -67,5 +114,6 @@ public struct FlowSimulationSummary: Sendable {
         self.meanRadialMiss = meanRadialMiss
         self.boundaryLoss = boundaryLoss
         self.weightedYHat = weightedYHat
+        self.learningScalars = learningScalars
     }
 }
