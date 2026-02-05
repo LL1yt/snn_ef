@@ -51,6 +51,7 @@ enum Validation {
         try ensureLoggingDestinations(logging: root.logging)
         try ensureProcessRegistry(root.processRegistry)
         try ensureOverridesWithinRegistry(logging: root.logging, registry: root.processRegistry)
+        try ensureHistogramLanguage(root.histogramLanguage)
     }
 
     private static func ensureAlphabetLength(capsule: ConfigRoot.Capsule) throws {
@@ -258,6 +259,28 @@ enum Validation {
             }
         }
     }
+
+    private static func ensureHistogramLanguage(_ histogram: ConfigRoot.HistogramLanguage) throws {
+        if histogram.metrics.isEmpty {
+            throw ConfigError.invalidHistogramLanguageParameter("metrics must be a non-empty list")
+        }
+        let allowed: Set<String> = ["l1", "l2", "cosine"]
+        let invalidMetrics = histogram.metrics
+            .map { $0.lowercased() }
+            .filter { !allowed.contains($0) }
+        if !invalidMetrics.isEmpty {
+            throw ConfigError.invalidHistogramLanguageParameter("metrics must be one of \(allowed.sorted())")
+        }
+        if histogram.retrieval.topK < 1 {
+            throw ConfigError.invalidHistogramLanguageParameter("retrieval.top_k must be ≥ 1")
+        }
+        if histogram.retrieval.enabled {
+            let trimmed = histogram.retrieval.corpusPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                throw ConfigError.invalidHistogramLanguageParameter("retrieval.corpus_path is required when retrieval.enabled is true")
+            }
+        }
+    }
 }
 
 // MARK: - Errors
@@ -279,6 +302,7 @@ public enum ConfigError: LocalizedError {
     case invalidEnergyFloor(Double)
     case invalidFlowParameter(String)
     case invalidLearningParameter(String)
+    case invalidHistogramLanguageParameter(String)
 
     public var errorDescription: String? {
         switch self {
@@ -312,6 +336,8 @@ public enum ConfigError: LocalizedError {
             return "Invalid flow router parameter: \(reason)"
         case let .invalidLearningParameter(reason):
             return "Invalid learning parameter: \(reason)"
+        case let .invalidHistogramLanguageParameter(reason):
+            return "Invalid histogram_language parameter: \(reason)"
         }
     }
 }
@@ -328,6 +354,7 @@ public struct ConfigRoot: Decodable {
     public let capsule: Capsule
     public let router: Router
     public let ui: UI
+    public let histogramLanguage: HistogramLanguage
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -339,6 +366,7 @@ public struct ConfigRoot: Decodable {
         case capsule
         case router
         case ui
+        case histogramLanguage = "histogram_language"
     }
 
     public struct Logging: Decodable {
@@ -860,6 +888,34 @@ public struct ConfigRoot: Decodable {
             case showGraph = "show_graph"
             case pipelineSnapshotPath = "pipeline_snapshot_path"
             case metricsPollMS = "metrics_poll_ms"
+        }
+    }
+
+    public struct HistogramLanguage: Decodable {
+        public let enabled: Bool
+        public let normalizeInput: Bool
+        public let normalizeOutput: Bool
+        public let metrics: [String]
+        public let retrieval: Retrieval
+
+        enum CodingKeys: String, CodingKey {
+            case enabled
+            case normalizeInput = "normalize_input"
+            case normalizeOutput = "normalize_output"
+            case metrics
+            case retrieval
+        }
+
+        public struct Retrieval: Decodable {
+            public let enabled: Bool
+            public let topK: Int
+            public let corpusPath: String
+
+            enum CodingKeys: String, CodingKey {
+                case enabled
+                case topK = "top_k"
+                case corpusPath = "corpus_path"
+            }
         }
     }
 }

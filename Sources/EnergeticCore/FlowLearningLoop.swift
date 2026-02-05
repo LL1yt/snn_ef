@@ -226,6 +226,7 @@ public final class FlowLearningLoop {
         var traceSteps: [Int: [TraceStep]] = [:]
         var pathPoints: [Int: [PathPoint]] = [:]
         var predictedBins: [Int]? = nil
+        var projectedHistogram: [Float]? = nil
         if needsUILog {
             // If gains were updated on GPU in prior epochs, sync them back before CPU stepping.
             if gainsLiveOnGPU {
@@ -235,6 +236,12 @@ public final class FlowLearningLoop {
 
             for id in trackedIDs { traceSteps[id] = [] }
             for id in trackedIDs { pathPoints[id] = [] }
+
+            var lastPosByID = [SIMD2<Float>](repeating: SIMD2<Float>(0, 0), count: initialParticleCount)
+            for seed in seeds {
+                precondition(seed.id >= 0 && seed.id < lastPosByID.count, "seed id out of range for lastPosByID")
+                lastPosByID[seed.id] = seed.pos
+            }
 
             var state = FlowState(step: 0, particles: seeds, bins: flowConfig.bins)
             for step in 0..<learningConfig.stepsPerEpoch {
@@ -275,6 +282,8 @@ public final class FlowLearningLoop {
                         )
                         pathPoints[event.id]?.append(point)
                     }
+                    precondition(event.id >= 0 && event.id < lastPosByID.count, "event id out of range for lastPosByID")
+                    lastPosByID[event.id] = event.pos
                     if let bin = event.projectedBin {
                         let completion = CompletionEvent(
                             particleID: event.id,
@@ -290,13 +299,29 @@ public final class FlowLearningLoop {
             }
             completionCount = UInt32(allCompletions.count)
             if initialParticleCount > 0 {
-                var binsByID = [Int](repeating: -1, count: initialParticleCount)
-                for completion in allCompletions {
-                    let id = completion.particleID
-                    guard id >= 0 && id < binsByID.count else { continue }
-                    binsByID[id] = completion.binIndex
+                var binsByID = [Int](repeating: 0, count: initialParticleCount)
+                var projected = [Float](repeating: 0, count: flowConfig.bins)
+                let radius = max(flowConfig.radius, 1e-6)
+                for id in 0..<initialParticleCount {
+                    let pos = lastPosByID[id]
+                    let r = length(pos)
+                    let theta = atan2(pos.y, pos.x)
+                    let binIdx = FlowProjector.binIndex(theta: theta, bins: flowConfig.bins)
+                    binsByID[id] = binIdx
+                    let weight: Float
+                    if r <= 0 {
+                        weight = 0
+                    } else if r <= radius {
+                        weight = r / radius
+                    } else {
+                        weight = radius / r
+                    }
+                    if weight > 0 {
+                        projected[binIdx] += min(max(weight, 0), 1)
+                    }
                 }
                 predictedBins = binsByID
+                projectedHistogram = projected
             }
         } else {
             // Fast path: one GPU-run with completions + counters + scalar metrics
@@ -636,6 +661,7 @@ public final class FlowLearningLoop {
                 inputText: inputText,
                 answerText: answerText,
                 predictedBins: predictedBins,
+                projectedHistogram: projectedHistogram,
                 traces: traces,
                 paths: paths
             )
@@ -752,6 +778,7 @@ public final class FlowLearningLoop {
         inputText: String?,
         answerText: String?,
         predictedBins: [Int]?,
+        projectedHistogram: [Float]?,
         traces: [LearningLogPayload.Trace],
         paths: [LearningLogPayload.Path]
     ) {
@@ -780,6 +807,7 @@ public final class FlowLearningLoop {
             inputText: inputText,
             answerText: answerText,
             predictedBins: predictedBins,
+            projectedHistogram: projectedHistogram,
             params: .init(
                 lif: params.lifThreshold,
                 radialBias: params.radialBias,
@@ -846,6 +874,7 @@ public final class FlowLearningLoop {
         let inputText: String?
         let answerText: String?
         let predictedBins: [Int]?
+        let projectedHistogram: [Float]?
         let params: Params
         let bins: Bins
         let histogram: Histogram?

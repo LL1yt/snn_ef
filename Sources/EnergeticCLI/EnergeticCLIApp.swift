@@ -65,6 +65,8 @@ struct EnergeticCLI {
         }
         let energiesU16 = batch.energies.map { UInt16($0) }
         let bins = FlowBridgeSNN.simulate(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
+        let inputHistogram = HistogramBuilder.fromEnergies(batch.energies, bins: flowCfg.bins)
+        precondition(inputHistogram.count == flowCfg.bins, "inputHistogram must match bins")
 
         // Prepare flow snapshot: ring seeds + selected particle samples
         let seedsParticles = FlowSeeds.makeSeeds(energies: energiesU16, cfg: flowCfg, seed: UInt64(snapshot.root.seed))
@@ -78,6 +80,7 @@ struct EnergeticCLI {
         }
         let flowSnapshot = ConfigPipelineSnapshot.FlowSnapshot(
             bins: bins.map { Double($0) },
+            inputHistogram: inputHistogram.map { Double($0) },
             radius: Double(flowCfg.radius),
             stepCount: flowCfg.T,
             ringSeeds: ringSeeds,

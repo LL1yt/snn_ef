@@ -88,16 +88,7 @@ public enum CheckpointManager {
 public enum TargetLoader {
     /// Creates target from capsule energies (digits + 1)
     public static func fromCapsuleDigits(energies: [Float], bins: Int) -> [Float] {
-        var targets = [Float](repeating: 0, count: bins)
-
-        // Distribute energies across bins based on their values
-        // Simple strategy: energy E maps to bin floor(E) % bins, contributing E
-        for energy in energies {
-            let binIdx = Int(floor(energy)) % bins
-            targets[binIdx] += energy
-        }
-
-        return targets
+        HistogramBuilder.fromEnergies(energies, bins: bins)
     }
 
     /// Loads target from a JSON file: array of floats [T[0], T[1], ..., T[B-1]]

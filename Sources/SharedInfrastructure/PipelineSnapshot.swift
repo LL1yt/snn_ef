@@ -176,6 +176,7 @@ public struct ConfigPipelineSnapshot: Codable {
             }
         }
         public let bins: [Double]
+        public let inputHistogram: [Double]?
         public let radius: Double
         public let stepCount: Int
         public let ringSeeds: [RingSeed]
@@ -185,6 +186,7 @@ public struct ConfigPipelineSnapshot: Codable {
         public let finalWeightPower: Double?
         public init(
             bins: [Double],
+            inputHistogram: [Double]? = nil,
             radius: Double,
             stepCount: Int,
             ringSeeds: [RingSeed],
@@ -194,6 +196,7 @@ public struct ConfigPipelineSnapshot: Codable {
             finalWeightPower: Double? = nil
         ) {
             self.bins = bins
+            self.inputHistogram = inputHistogram
             self.radius = radius
             self.stepCount = stepCount
             self.ringSeeds = ringSeeds
