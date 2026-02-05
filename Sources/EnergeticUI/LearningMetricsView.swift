@@ -236,44 +236,43 @@ public struct LearningMetricsView: View {
 
     @ViewBuilder
     private func predictionPanel(record: LearningLogPayload) -> some View {
-        guard let predictedBins = record.predictedBins, !predictedBins.isEmpty else {
+        if let predictedBins = record.predictedBins, !predictedBins.isEmpty {
+            let preview = binsPreview(predictedBins, maxCount: 96)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Prediction (bins sequence)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(preview.text)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+                Text("count \(predictedBins.count) | missing \(preview.missingCount)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
+                if let config = capsuleConfig {
+                    let decode = decodePrediction(predictedBins, config: config)
+                    if let error = decode.error {
+                        Text("Capsule decode failed: \(error)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else {
+                        let suffix = decode.truncated ? "…" : ""
+                        Text("Decoded text (\(decode.byteCount) bytes): \(decode.text)\(suffix)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(4)
+                    }
+                } else {
+                    Text("Capsule decode unavailable (capsule config missing).")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        } else {
             Text("Prediction sequence not available (logEveryUI controls when it appears).")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-            return
-        }
-
-        let preview = binsPreview(predictedBins, maxCount: 96)
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Prediction (bins sequence)")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Text(preview.text)
-                .font(.caption2.monospacedDigit())
-                .foregroundColor(.secondary)
-                .lineLimit(3)
-            Text("count \(predictedBins.count) | missing \(preview.missingCount)")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-
-            if let config = capsuleConfig {
-                let decode = decodePrediction(predictedBins, config: config)
-                if let error = decode.error {
-                    Text("Capsule decode failed: \(error)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                } else {
-                    let suffix = decode.truncated ? "…" : ""
-                    Text("Decoded text (\(decode.byteCount) bytes): \(decode.text)\(suffix)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(4)
-                }
-            } else {
-                Text("Capsule decode unavailable (capsule config missing).")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
         }
     }
 
