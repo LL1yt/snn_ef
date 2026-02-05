@@ -181,7 +181,10 @@ public final class FlowLearningLoop {
         inputText: String? = nil,
         answerText: String? = nil,
         applyUpdates: Bool = true,
-        emitLog: Bool = true
+        emitLog: Bool = true,
+        // Performance: allow callers (e.g. CLI dataset cache) to provide pre-normalized targets.
+        targetsNormOverride: [Float]? = nil,
+        wrongTargetsNormOverride: [[Float]]? = nil
     ) -> LearningMetrics {
         // Create seeds from energies
         let seeds = FlowSeeds.makeSeeds(
@@ -345,11 +348,26 @@ public final class FlowLearningLoop {
         }
         // Normalize for loss computation (keep raw for UI/metrics)
         let yHatNorm = normalizeBins(yHat)
-        let targetNorm = normalizeBins(targets)
+        let targetNorm: [Float]
+        if let cached = targetsNormOverride, cached.count == targets.count {
+            targetNorm = cached
+        } else {
+            targetNorm = normalizeBins(targets)
+        }
 
         // Compute losses
         let binLoss = LossFunctions.binLoss(yHat: yHatNorm, target: targetNorm, gains: params.gains)
-        let wrongNorm = (learningConfig.negative.enabled && !wrongTargets.isEmpty) ? wrongTargets.map { normalizeBins($0) } : []
+
+        let wrongNorm: [[Float]]
+        if learningConfig.negative.enabled, !wrongTargets.isEmpty {
+            if let cached = wrongTargetsNormOverride, cached.count == wrongTargets.count {
+                wrongNorm = cached
+            } else {
+                wrongNorm = wrongTargets.map { normalizeBins($0) }
+            }
+        } else {
+            wrongNorm = []
+        }
         let negativeLoss: Float
         if !wrongNorm.isEmpty {
             let base = LossFunctions.negativeMarginLoss(yHat: yHatNorm, wrongTargets: wrongNorm, margin: learningConfig.negative.margin)
