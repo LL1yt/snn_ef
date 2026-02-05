@@ -31,6 +31,11 @@ public struct FlowSimulationSummary: Sendable {
     public let completionCount: UInt32
     public let completions: [GPUCompletion]
 
+    /// GPU-reduced scalar metrics for the epoch window.
+    /// These match the CPU reference implementations in FlowLearningLoop/LossFunctions.
+    public let meanRadialMiss: Float
+    public let boundaryLoss: Float
+
     /// Optional weighted yHat computed on GPU (CompletionAggregator equivalent).
     /// Present only when requested.
     public let weightedYHat: [Float]?
@@ -41,6 +46,8 @@ public struct FlowSimulationSummary: Sendable {
         particleStepCount: UInt32,
         completionCount: UInt32,
         completions: [GPUCompletion],
+        meanRadialMiss: Float = 0,
+        boundaryLoss: Float = 0,
         weightedYHat: [Float]? = nil
     ) {
         self.bins = bins
@@ -48,6 +55,8 @@ public struct FlowSimulationSummary: Sendable {
         self.particleStepCount = particleStepCount
         self.completionCount = completionCount
         self.completions = completions
+        self.meanRadialMiss = meanRadialMiss
+        self.boundaryLoss = boundaryLoss
         self.weightedYHat = weightedYHat
     }
 }

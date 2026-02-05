@@ -290,7 +290,9 @@ struct EnergeticCLI {
                 targets: pair.targets,
                 wrongTargets: pair.wrongTargets,
                 optionTargets: pair.optionTargets,
-                correctIndex: pair.correctIndex
+                correctIndex: pair.correctIndex,
+                inputText: pair.inputText,
+                answerText: pair.answerText
             )
             allMetrics.append(metrics)
 
@@ -399,6 +401,8 @@ struct EnergeticCLI {
         let wrongTargets: [[Float]]
         let optionTargets: [[Float]]
         let correctIndex: Int
+        let inputText: String
+        let answerText: String
     }
 
     private static func buildCache(
@@ -434,7 +438,7 @@ struct EnergeticCLI {
         bins: Int,
         processID: String,
         cache: inout [String: EncodedSample]
-    ) -> (energies: [Float], targets: [Float], wrongTargets: [[Float]], optionTargets: [[Float]], correctIndex: Int) {
+    ) -> (energies: [Float], targets: [Float], wrongTargets: [[Float]], optionTargets: [[Float]], correctIndex: Int, inputText: String, answerText: String) {
         let inputText: String
         let answerText: String
         let wrongAnswers: [String]
@@ -454,7 +458,7 @@ struct EnergeticCLI {
         }
 
         if let cached = cache[sampleID] {
-            return (cached.energies, cached.targets, cached.wrongTargets, cached.optionTargets, cached.correctIndex)
+            return (cached.energies, cached.targets, cached.wrongTargets, cached.optionTargets, cached.correctIndex, cached.inputText, cached.answerText)
         }
 
         let inputData = truncateIfNeeded(Data(inputText.utf8), maxBytes: capsuleConfig.maxInputBytes)
@@ -491,9 +495,17 @@ struct EnergeticCLI {
         }
 
         let optionTargets = [targets] + wrongTargets
-        let encoded = EncodedSample(energies: inputEnergies, targets: targets, wrongTargets: wrongTargets, optionTargets: optionTargets, correctIndex: 0)
+        let encoded = EncodedSample(
+            energies: inputEnergies,
+            targets: targets,
+            wrongTargets: wrongTargets,
+            optionTargets: optionTargets,
+            correctIndex: 0,
+            inputText: inputText,
+            answerText: answerText
+        )
         cache[sampleID] = encoded
-        return (inputEnergies, targets, wrongTargets, optionTargets, 0)
+        return (inputEnergies, targets, wrongTargets, optionTargets, 0, inputText, answerText)
     }
 
     private static func evaluateSamples(
@@ -515,9 +527,9 @@ struct EnergeticCLI {
         var accCount: Float = 0
 
         for (i, sample) in samples.enumerated() {
-            let pair: (energies: [Float], targets: [Float], wrongTargets: [[Float]], optionTargets: [[Float]], correctIndex: Int)
+            let pair: (energies: [Float], targets: [Float], wrongTargets: [[Float]], optionTargets: [[Float]], correctIndex: Int, inputText: String, answerText: String)
             if let cached = cache[sample.id] {
-                pair = (cached.energies, cached.targets, cached.wrongTargets, cached.optionTargets, cached.correctIndex)
+                pair = (cached.energies, cached.targets, cached.wrongTargets, cached.optionTargets, cached.correctIndex, cached.inputText, cached.answerText)
             } else {
                 pair = makeTrainingPair(
                     index: i,
@@ -537,6 +549,8 @@ struct EnergeticCLI {
                 wrongTargets: pair.wrongTargets,
                 optionTargets: pair.optionTargets,
                 correctIndex: pair.correctIndex,
+                inputText: pair.inputText,
+                answerText: pair.answerText,
                 applyUpdates: false,
                 emitLog: false
             )

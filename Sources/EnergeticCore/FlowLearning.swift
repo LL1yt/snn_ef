@@ -55,8 +55,24 @@ public struct LearningMetrics: Sendable, Codable {
     public let yHatStats: BinStatistics
     public let paramDeltas: ParameterDeltas
     public let optionAccuracy: Float?
+    public let histogramMatchL1: Float?
 
-    public init(epoch: Int, totalLoss: Float, binLoss: Float, negativeLoss: Float = 0, spikeLoss: Float, boundaryLoss: Float, spikeRate: Float, completionRate: Float, meanRadialMiss: Float, nonzeroBins: Int, yHatStats: BinStatistics, paramDeltas: ParameterDeltas, optionAccuracy: Float? = nil) {
+    public init(
+        epoch: Int,
+        totalLoss: Float,
+        binLoss: Float,
+        negativeLoss: Float = 0,
+        spikeLoss: Float,
+        boundaryLoss: Float,
+        spikeRate: Float,
+        completionRate: Float,
+        meanRadialMiss: Float,
+        nonzeroBins: Int,
+        yHatStats: BinStatistics,
+        paramDeltas: ParameterDeltas,
+        optionAccuracy: Float? = nil,
+        histogramMatchL1: Float? = nil
+    ) {
         self.epoch = epoch
         self.totalLoss = totalLoss
         self.binLoss = binLoss
@@ -70,6 +86,7 @@ public struct LearningMetrics: Sendable, Codable {
         self.yHatStats = yHatStats
         self.paramDeltas = paramDeltas
         self.optionAccuracy = optionAccuracy
+        self.histogramMatchL1 = histogramMatchL1
     }
 
     enum CodingKeys: String, CodingKey {
@@ -86,6 +103,7 @@ public struct LearningMetrics: Sendable, Codable {
         case yHatStats
         case paramDeltas
         case optionAccuracy
+        case histogramMatchL1
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +121,7 @@ public struct LearningMetrics: Sendable, Codable {
         yHatStats = try c.decode(BinStatistics.self, forKey: .yHatStats)
         paramDeltas = try c.decode(ParameterDeltas.self, forKey: .paramDeltas)
         optionAccuracy = try? c.decode(Float.self, forKey: .optionAccuracy)
+        histogramMatchL1 = try? c.decode(Float.self, forKey: .histogramMatchL1)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -120,6 +139,7 @@ public struct LearningMetrics: Sendable, Codable {
         try c.encode(yHatStats, forKey: .yHatStats)
         try c.encode(paramDeltas, forKey: .paramDeltas)
         try c.encodeIfPresent(optionAccuracy, forKey: .optionAccuracy)
+        try c.encodeIfPresent(histogramMatchL1, forKey: .histogramMatchL1)
     }
 
     public struct BinStatistics: Sendable, Codable {

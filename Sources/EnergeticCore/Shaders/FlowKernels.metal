@@ -237,7 +237,9 @@ kernel void flow_step_train(
     device atomic_float *groupWeightedSum [[buffer(23)]],
     device atomic_float *groupWeightSum [[buffer(24)]],
     device const float *targetsRaw [[buffer(25)]],
-    constant FlowParams &p [[buffer(26)]],
+    device atomic_float *groupRadialMissSum [[buffer(26)]],
+    device atomic_float *groupBoundaryLossSum [[buffer(27)]],
+    constant FlowParams &p [[buffer(28)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= p.count) { return; }
@@ -367,6 +369,19 @@ kernel void flow_step_train(
             // Raw histogram contribution (for diagnostics/parity with FlowRouter.run)
             uint idx = groupId * p.bins + uint(b);
             atomic_fetch_add_explicit(&groupHistogram[idx], eAdj, memory_order_relaxed);
+
+            // Scalar metrics accumulation (GPU): meanRadialMiss and boundaryLoss
+            {
+                float absMiss = fabs(r - p.radius);
+                atomic_fetch_add_explicit(&groupRadialMissSum[groupId], absMiss, memory_order_relaxed);
+
+                // Matches LossFunctions.boundaryLoss eps default.
+                const float boundaryEps = 0.01f;
+                float excess = absMiss - boundaryEps;
+                if (excess > 0.0f) {
+                    atomic_fetch_add_explicit(&groupBoundaryLossSum[groupId], excess, memory_order_relaxed);
+                }
+            }
 
             // Weighted yHat accumulation (CompletionAggregator equivalent) when enabled
             if (p.aggEnabled != 0) {

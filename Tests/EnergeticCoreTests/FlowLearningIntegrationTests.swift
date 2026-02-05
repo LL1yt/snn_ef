@@ -2,6 +2,70 @@ import XCTest
 @testable import EnergeticCore
 
 final class FlowLearningIntegrationTests: XCTestCase {
+    func testGPUScalarMetricsMatchCPU() {
+        let flowCfg = FlowConfig(
+            T: 20,
+            radius: 10.0,
+            bins: 8,
+            seedLayout: "ring",
+            seedRadius: 1.0,
+            finalWeightPower: 1.0,
+            lif: .init(decay: 0.9, threshold: 0.8, resetValue: 0.0, surrogate: "fast_sigmoid"),
+            dynamics: .init(radialBias: 0.15, spikeKick: 0.5, gainSpikeKickScale: 0.0, noiseStdPos: 0.01, noiseStdDir: 0.05, maxSpeed: 1.0, energyAlpha: 0.95, energyFloor: 1e-5, energySpikeGain: 0.0, energyGainBias: 0.0, energyCap: 0.0)
+        )
+        let router = FlowRouter(cfg: flowCfg, seed: 123)
+
+        let energies: [Float] = [10, 20, 15, 8, 12, 18, 22, 14]
+        let seeds = FlowSeeds.makeSeeds(energies: energies, layout: flowCfg.seedLayout, radius: flowCfg.seedRadius, bins: flowCfg.bins)
+
+        var initialBins: [Int32] = []
+        initialBins.reserveCapacity(seeds.count)
+        for s in seeds {
+            let theta = atan2(s.pos.y, s.pos.x)
+            initialBins.append(Int32(FlowProjector.binIndex(theta: theta, bins: flowCfg.bins)))
+        }
+
+        let gains = [Float](repeating: 1.0, count: flowCfg.bins)
+        let summary = router.simulateWithCompletions(
+            initial: seeds,
+            gains: gains,
+            steps: 20,
+            initialBins: initialBins
+        )
+
+        var completions: [CompletionEvent] = []
+        completions.reserveCapacity(Int(summary.completionCount))
+        for c in summary.completions where c.bin >= 0 {
+            let initial = c.initialBin >= 0 ? Int(c.initialBin) : nil
+            completions.append(
+                CompletionEvent(
+                    particleID: Int(c.particleID),
+                    binIndex: Int(c.bin),
+                    position: SIMD2<Float>(c.x, c.y),
+                    energy: c.energy,
+                    spiked: c.spiked != 0,
+                    initialBinIndex: initial
+                )
+            )
+        }
+
+        let meanMissCPU: Float
+        if completions.isEmpty {
+            meanMissCPU = 0
+        } else {
+            let sum = completions.reduce(Float(0.0)) { acc, comp in
+                let r = length(comp.position)
+                return acc + abs(r - flowCfg.radius)
+            }
+            meanMissCPU = sum / Float(completions.count)
+        }
+
+        let boundaryCPU = LossFunctions.boundaryLoss(completions: completions, radius: flowCfg.radius, eps: 0.01)
+
+        XCTAssertEqual(summary.meanRadialMiss, meanMissCPU, accuracy: 1e-3)
+        XCTAssertEqual(summary.boundaryLoss, boundaryCPU, accuracy: 1e-3)
+    }
+
     func testGPUWeightedYHatMatchesCPUAggregator() {
         let flowCfg = FlowConfig(
             T: 20,

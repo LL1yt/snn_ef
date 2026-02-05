@@ -101,6 +101,7 @@ public struct LearningMetricsView: View {
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
             histogramPanel
+            histogramMatchChart
             lossCharts
             rateCharts
         }
@@ -180,10 +181,59 @@ public struct LearningMetricsView: View {
                     .foregroundColor(.secondary)
                 HistogramComparisonView(yHat: yHat, target: target)
                     .frame(height: 180)
+                histogramSignatureView(yHat: histogram.yHat, target: histogram.target)
+                if let input = latest.inputText, !input.isEmpty {
+                    Text("Input: \(input)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                if let answer = latest.answerText, !answer.isEmpty {
+                    Text("Answer: \(answer)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
         } else {
             Text("Histogram not available in log payload.")
                 .font(.footnote)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var histogramMatchChart: some View {
+        let values = viewModel.records.compactMap { $0.histogramMatchL1 }.map { Double($0) }
+        if !values.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Histogram match (L1)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                MetricLineChart(title: "L1 (norm)", values: values, color: .mint, trendHint: trendHint(for: "HistL1", values: values))
+                Text("↓ better: L1 distance between normalized yHat and target")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func histogramSignatureView(yHat: [Float], target: [Float]?) -> some View {
+        let top = topBinsSignature(values: yHat, maxCount: 6)
+        let targetTop = target.map { topBinsSignature(values: $0, maxCount: 6) }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Signature (top bins)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text("yHat: \(top)")
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.secondary)
+            if let targetTop {
+                Text("target: \(targetTop)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+            Text("Histogram is orderless; decoding text requires sequence-level signals.")
+                .font(.caption2)
                 .foregroundColor(.secondary)
         }
     }
@@ -336,7 +386,7 @@ public struct LearningMetricsView: View {
         switch kind {
         case "Completion", "Acc":
             return trend > 0 ? "↑ better" : "↓ worse"
-        case "RadialMiss", "Total", "Bins", "Negative", "Spike", "Boundary":
+        case "RadialMiss", "Total", "Bins", "Negative", "Spike", "Boundary", "HistL1":
             return trend < 0 ? "↓ better" : "↑ worse"
         case "SpikeRate":
             return "≈ target"
@@ -361,6 +411,16 @@ public struct LearningMetricsView: View {
             }
         }
         return (yOut, tOut)
+    }
+
+    private func topBinsSignature(values: [Float], maxCount: Int) -> String {
+        guard !values.isEmpty, maxCount > 0 else { return "n/a" }
+        let ranked = values.enumerated()
+            .filter { $0.element > 0 }
+            .sorted { $0.element > $1.element }
+            .prefix(maxCount)
+        if ranked.isEmpty { return "all zero" }
+        return ranked.map { String(format: "#%d=%.2f", $0.offset, $0.element) }.joined(separator: " ")
     }
 
     private func movingAverage(values: [Double], window: Int) -> [Double] {
@@ -505,6 +565,9 @@ struct LearningLogPayload: Decodable {
     let rates: Rates
     let radius: Radius
     let optionAccuracy: Float?
+    let histogramMatchL1: Float?
+    let inputText: String?
+    let answerText: String?
     let params: Params
     let bins: Bins
     let histogram: Histogram?

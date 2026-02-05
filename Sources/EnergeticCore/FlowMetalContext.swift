@@ -82,6 +82,12 @@ final class FlowMetalContext {
     private var groupWeightedSumBuffer: MTLBuffer?
     private var groupWeightSumBuffer: MTLBuffer?
 
+    // Scalar learning metrics (GPU reduced)
+    private var radialMissSumBuffer: MTLBuffer?
+    private var boundaryLossSumBuffer: MTLBuffer?
+    private var groupRadialMissSumBuffer: MTLBuffer?
+    private var groupBoundaryLossSumBuffer: MTLBuffer?
+
     private var groupSpikeCountBuffer: MTLBuffer?
     private var groupStepCountBuffer: MTLBuffer?
     private var groupCompletionCountBuffer: MTLBuffer?
@@ -587,9 +593,14 @@ final class FlowMetalContext {
         let stepThreadsPerGroup = max(1, stepTG)
         let stepGroupCount = (count + stepThreadsPerGroup - 1) / stepThreadsPerGroup
         ensureGroupCounterCapacity(stepGroupCount)
+        ensureScalarMetricBuffers()
         fillBuffer(groupSpikeCountBuffer!, value: 0, length: stepGroupCount * MemoryLayout<UInt32>.stride)
         fillBuffer(groupStepCountBuffer!, value: 0, length: stepGroupCount * MemoryLayout<UInt32>.stride)
         fillBuffer(groupCompletionCountBuffer!, value: 0, length: stepGroupCount * MemoryLayout<UInt32>.stride)
+        clearBuffer(groupRadialMissSumBuffer!, length: stepGroupCount * MemoryLayout<Float>.stride)
+        clearBuffer(groupBoundaryLossSumBuffer!, length: stepGroupCount * MemoryLayout<Float>.stride)
+        clearBuffer(radialMissSumBuffer!, length: MemoryLayout<Float>.stride)
+        clearBuffer(boundaryLossSumBuffer!, length: MemoryLayout<Float>.stride)
 
         // Final threadgroup sizing (used only for final projection -> groupHistogram)
         let finalTG = min(finalPipeline.maxTotalThreadsPerThreadgroup, finalPipeline.threadExecutionWidth * 4)
@@ -716,13 +727,15 @@ final class FlowMetalContext {
         stepEnc.setBuffer(groupWeightedSumBuffer, offset: 0, index: 23)
         stepEnc.setBuffer(groupWeightSumBuffer, offset: 0, index: 24)
         stepEnc.setBuffer(targetsRawBuffer, offset: 0, index: 25)
+        stepEnc.setBuffer(groupRadialMissSumBuffer, offset: 0, index: 26)
+        stepEnc.setBuffer(groupBoundaryLossSumBuffer, offset: 0, index: 27)
 
         let threadsPerThreadgroup = MTLSize(width: max(1, stepTG), height: 1, depth: 1)
         let threads = MTLSize(width: count, height: 1, depth: 1)
         for s in 0..<max(0, steps) {
             stepParams.step = UInt32(s)
             var paramsCopy = stepParams
-            stepEnc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 26)
+            stepEnc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 28)
             stepEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
         }
         stepEnc.endEncoding()
@@ -822,6 +835,36 @@ final class FlowMetalContext {
             }
         }
 
+        // Reduce scalar metrics (sum across stepGroupCount into 1 float each)
+        if let reduceEnc = cmd.makeComputeCommandEncoder() {
+            reduceEnc.setComputePipelineState(reducePipeline)
+            reduceEnc.setBuffer(radialMissSumBuffer, offset: 0, index: 0)
+            reduceEnc.setBuffer(groupRadialMissSumBuffer, offset: 0, index: 1)
+            var reduceParams = stepParams
+            reduceParams.bins = 1
+            reduceParams.groupCount = UInt32(stepGroupCount)
+            reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+            let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+            let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+            let reduceThreads = MTLSize(width: 1, height: 1, depth: 1)
+            reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+            reduceEnc.endEncoding()
+        }
+        if let reduceEnc = cmd.makeComputeCommandEncoder() {
+            reduceEnc.setComputePipelineState(reducePipeline)
+            reduceEnc.setBuffer(boundaryLossSumBuffer, offset: 0, index: 0)
+            reduceEnc.setBuffer(groupBoundaryLossSumBuffer, offset: 0, index: 1)
+            var reduceParams = stepParams
+            reduceParams.bins = 1
+            reduceParams.groupCount = UInt32(stepGroupCount)
+            reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+            let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+            let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+            let reduceThreads = MTLSize(width: 1, height: 1, depth: 1)
+            reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+            reduceEnc.endEncoding()
+        }
+
         cmd.commit()
         cmd.waitUntilCompleted()
 
@@ -845,6 +888,22 @@ final class FlowMetalContext {
         let spikeCount = groupSpikes.reduce(0, &+)
         let particleStepCount = groupSteps.reduce(0, &+)
         let completionCount = groupCompletions.reduce(0, &+)
+
+        let radialMissSumArr: [Float] = readArray(from: radialMissSumBuffer!, count: 1)
+        let boundaryLossSumArr: [Float] = readArray(from: boundaryLossSumBuffer!, count: 1)
+        let radialMissSum = radialMissSumArr.first ?? 0
+        let boundaryLossSum = boundaryLossSumArr.first ?? 0
+
+        let meanRadialMiss: Float
+        let boundaryLoss: Float
+        if completionCount > 0 {
+            let denom = Float(completionCount)
+            meanRadialMiss = radialMissSum / denom
+            boundaryLoss = boundaryLossSum / denom
+        } else {
+            meanRadialMiss = 0
+            boundaryLoss = 0
+        }
 
         let compID: [Int32] = readArray(from: completionIDBuffer!, count: count)
         let compBin: [Int32] = readArray(from: completionBinBuffer!, count: count)
@@ -877,6 +936,8 @@ final class FlowMetalContext {
             particleStepCount: particleStepCount,
             completionCount: completionCount,
             completions: completions,
+            meanRadialMiss: meanRadialMiss,
+            boundaryLoss: boundaryLoss,
             weightedYHat: weightedYHat
         )
     }
@@ -989,8 +1050,34 @@ final class FlowMetalContext {
     }
 
     private func ensureParticleCapacity(_ count: Int) {
-        guard count > particleCapacity else { return }
-        particleCapacity = max(count, particleCapacity * 2, 64)
+        let needsResize = count > particleCapacity
+        let needsAlloc = (idsBuffer == nil)
+            || (posXBuffer == nil)
+            || (posYBuffer == nil)
+            || (velXBuffer == nil)
+            || (velYBuffer == nil)
+            || (energyBuffer == nil)
+            || (vBuffer == nil)
+            || (projectedBinBuffer == nil)
+            || (spikedBuffer == nil)
+            || (aliveBuffer == nil)
+            || (initialBinByIndexBuffer == nil)
+            || (completionWrittenBuffer == nil)
+            || (completionIDBuffer == nil)
+            || (completionBinBuffer == nil)
+            || (completionPosXBuffer == nil)
+            || (completionPosYBuffer == nil)
+            || (completionEnergyBuffer == nil)
+            || (completionSpikedBuffer == nil)
+            || (completionInitialBinBuffer == nil)
+
+        guard needsResize || needsAlloc else { return }
+
+        if needsResize {
+            particleCapacity = max(count, particleCapacity * 2, 64)
+        } else {
+            particleCapacity = max(particleCapacity, count, 64)
+        }
 
         idsBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Int32>.stride, options: .storageModeShared)
         posXBuffer = device.makeBuffer(length: particleCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
@@ -1016,8 +1103,20 @@ final class FlowMetalContext {
     }
 
     private func ensureBinsCapacity(_ bins: Int) {
-        guard bins > binsCapacity else { return }
-        binsCapacity = max(bins, binsCapacity * 2, 64)
+        let needsResize = bins > binsCapacity
+        let needsAlloc = (histogramBuffer == nil)
+            || (gainsBuffer == nil)
+            || (targetsRawBuffer == nil)
+            || (weightedSumBuffer == nil)
+            || (weightSumBuffer == nil)
+        guard needsResize || needsAlloc else { return }
+
+        if needsResize {
+            binsCapacity = max(bins, binsCapacity * 2, 64)
+        } else {
+            binsCapacity = max(binsCapacity, bins, 64)
+        }
+
         histogramBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
         gainsBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
 
@@ -1030,6 +1129,8 @@ final class FlowMetalContext {
     private func ensureGroupHistogramCapacity(groupCount: Int, bins: Int) {
         let desiredBins = max(bins, binsCapacity)
         if groupHistogramBuffer == nil
+            || groupWeightedSumBuffer == nil
+            || groupWeightSumBuffer == nil
             || groupCount > groupHistogramCapacityGroups
             || desiredBins > groupHistogramCapacityBins {
             groupHistogramCapacityGroups = max(groupCount, groupHistogramCapacityGroups * 2, 1)
@@ -1044,11 +1145,35 @@ final class FlowMetalContext {
     }
 
     private func ensureGroupCounterCapacity(_ groupCount: Int) {
-        guard groupCount > groupCounterCapacity else { return }
-        groupCounterCapacity = max(groupCount, groupCounterCapacity * 2, 1)
+        let needsResize = groupCount > groupCounterCapacity
+        let needsAlloc = (groupSpikeCountBuffer == nil)
+            || (groupStepCountBuffer == nil)
+            || (groupCompletionCountBuffer == nil)
+            || (groupRadialMissSumBuffer == nil)
+            || (groupBoundaryLossSumBuffer == nil)
+
+        guard needsResize || needsAlloc else { return }
+
+        if needsResize {
+            groupCounterCapacity = max(groupCount, groupCounterCapacity * 2, 1)
+        } else {
+            groupCounterCapacity = max(groupCounterCapacity, groupCount, 1)
+        }
+
         groupSpikeCountBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<UInt32>.stride, options: .storageModeShared)
         groupStepCountBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<UInt32>.stride, options: .storageModeShared)
         groupCompletionCountBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<UInt32>.stride, options: .storageModeShared)
+        groupRadialMissSumBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        groupBoundaryLossSumBuffer = device.makeBuffer(length: groupCounterCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+    }
+
+    private func ensureScalarMetricBuffers() {
+        if radialMissSumBuffer == nil {
+            radialMissSumBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride, options: .storageModeShared)
+        }
+        if boundaryLossSumBuffer == nil {
+            boundaryLossSumBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride, options: .storageModeShared)
+        }
     }
 
     private func writeArray<T>(_ array: [T], to buffer: MTLBuffer, count: Int) {

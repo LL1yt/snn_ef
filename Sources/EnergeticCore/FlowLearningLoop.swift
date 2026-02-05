@@ -178,6 +178,8 @@ public final class FlowLearningLoop {
         wrongTargets: [[Float]] = [],
         optionTargets: [[Float]] = [],
         correctIndex: Int? = nil,
+        inputText: String? = nil,
+        answerText: String? = nil,
         applyUpdates: Bool = true,
         emitLog: Bool = true
     ) -> LearningMetrics {
@@ -196,8 +198,11 @@ public final class FlowLearningLoop {
         var allCompletions: [CompletionEvent] = []
         var totalSpikes: UInt32 = 0
         var totalParticleSteps: UInt32 = 0
+        var completionCount: UInt32 = 0
         let initialParticleCount = seeds.count
         var gpuWeightedYHat: [Float]? = nil
+        var gpuMeanRadialMiss: Float? = nil
+        var gpuBoundaryLoss: Float? = nil
 
         // Initial bins for alignment weight (dense by seed index; store -1 when unknown)
         var initialBinsByIndex = [Int32](repeating: -1, count: seeds.count)
@@ -270,8 +275,9 @@ public final class FlowLearningLoop {
                     }
                 }
             }
+            completionCount = UInt32(allCompletions.count)
         } else {
-            // Fast path: one GPU-run with completions + counters
+            // Fast path: one GPU-run with completions + counters + scalar metrics
             let wantsWeighted = (learningConfig.outputSignal == .weightedBinsGPU) && (targets.count == flowConfig.bins)
             let summary = router.simulateWithCompletions(
                 initial: seeds,
@@ -282,23 +288,29 @@ public final class FlowLearningLoop {
                 aggregator: wantsWeighted ? learningConfig.aggregatorConfig : nil
             )
             gpuWeightedYHat = summary.weightedYHat
+            gpuMeanRadialMiss = summary.meanRadialMiss
+            gpuBoundaryLoss = summary.boundaryLoss
+            completionCount = summary.completionCount
             totalSpikes = summary.spikeCount
             totalParticleSteps = summary.particleStepCount
 
-            allCompletions.reserveCapacity(Int(summary.completionCount))
-            for comp in summary.completions {
-                guard comp.bin >= 0 else { continue }
-                let initialBin = comp.initialBin >= 0 ? Int(comp.initialBin) : nil
-                allCompletions.append(
-                    CompletionEvent(
-                        particleID: Int(comp.particleID),
-                        binIndex: Int(comp.bin),
-                        position: SIMD2<Float>(comp.x, comp.y),
-                        energy: comp.energy,
-                        spiked: comp.spiked != 0,
-                        initialBinIndex: initialBin
+            // Only materialize completions when we need the CPU aggregator.
+            if gpuWeightedYHat == nil {
+                allCompletions.reserveCapacity(Int(summary.completionCount))
+                for comp in summary.completions {
+                    guard comp.bin >= 0 else { continue }
+                    let initialBin = comp.initialBin >= 0 ? Int(comp.initialBin) : nil
+                    allCompletions.append(
+                        CompletionEvent(
+                            particleID: Int(comp.particleID),
+                            binIndex: Int(comp.bin),
+                            position: SIMD2<Float>(comp.x, comp.y),
+                            energy: comp.energy,
+                            spiked: comp.spiked != 0,
+                            initialBinIndex: initialBin
+                        )
                     )
-                )
+                }
             }
         }
 
@@ -331,7 +343,7 @@ public final class FlowLearningLoop {
         }
         let spikeRate = totalParticleSteps > 0 ? Float(totalSpikes) / Float(totalParticleSteps) : 0
         let spikeLoss = LossFunctions.spikeRateLoss(observed: spikeRate, target: learningConfig.targetSpikeRate)
-        let boundaryLoss = LossFunctions.boundaryLoss(completions: allCompletions, radius: flowConfig.radius)
+        let boundaryLoss = gpuBoundaryLoss ?? LossFunctions.boundaryLoss(completions: allCompletions, radius: flowConfig.radius)
         let totalLoss = LossFunctions.totalLoss(
             binLoss: binLoss,
             negativeLoss: negativeLoss,
@@ -351,10 +363,11 @@ public final class FlowLearningLoop {
         }
 
         // Compute metrics
-        let completionRate = initialParticleCount > 0 ? Float(allCompletions.count) / Float(initialParticleCount) : 0
-        let meanRadialMiss = computeMeanRadialMiss(completions: allCompletions, radius: flowConfig.radius)
+        let completionRate = initialParticleCount > 0 ? Float(completionCount) / Float(initialParticleCount) : 0
+        let meanRadialMiss = gpuMeanRadialMiss ?? computeMeanRadialMiss(completions: allCompletions, radius: flowConfig.radius)
         let nonzeroBins = yHat.filter { $0 > 0 }.count
         let yHatStats = computeBinStatistics(yHat)
+        let histogramMatchL1 = computeHistogramMatchL1(yHatNorm: yHatNorm, targetNorm: targetNorm)
 
         let paramDeltas: LearningMetrics.ParameterDeltas
         if applyUpdates {
@@ -447,7 +460,8 @@ public final class FlowLearningLoop {
             nonzeroBins: nonzeroBins,
             yHatStats: yHatStats,
             paramDeltas: paramDeltas,
-            optionAccuracy: optionAccuracy
+            optionAccuracy: optionAccuracy,
+            histogramMatchL1: histogramMatchL1
         )
 
 #if canImport(SharedInfrastructure)
@@ -460,7 +474,17 @@ public final class FlowLearningLoop {
                 guard let points = pathPoints[id] else { return nil }
                 return LearningLogPayload.Path(id: id, points: points)
             }
-            emitLearningLog(epoch: epoch, metrics: metrics, params: params, yHat: yHat, targets: targets, traces: traces, paths: paths)
+            emitLearningLog(
+                epoch: epoch,
+                metrics: metrics,
+                params: params,
+                yHat: yHat,
+                targets: targets,
+                inputText: inputText,
+                answerText: answerText,
+                traces: traces,
+                paths: paths
+            )
         }
 #endif
 
@@ -550,6 +574,14 @@ public final class FlowLearningLoop {
         return bins.map { $0 / sum }
     }
 #endif
+
+    private func computeHistogramMatchL1(yHatNorm: [Float], targetNorm: [Float]) -> Float? {
+        guard yHatNorm.count == targetNorm.count, !yHatNorm.isEmpty else { return nil }
+        let sum: Float = zip(yHatNorm, targetNorm).reduce(0) { acc, pair in
+            acc + Swift.abs(pair.0 - pair.1)
+        }
+        return sum
+    }
 #if canImport(SharedInfrastructure)
     private static let learningLogPrefix = "learning.metrics "
 
@@ -559,6 +591,8 @@ public final class FlowLearningLoop {
         params: LearnableParameters,
         yHat: [Float],
         targets: [Float],
+        inputText: String?,
+        answerText: String?,
         traces: [LearningLogPayload.Trace],
         paths: [LearningLogPayload.Path]
     ) {
@@ -583,6 +617,9 @@ public final class FlowLearningLoop {
             rates: .init(spike: metrics.spikeRate, completion: metrics.completionRate),
             radius: .init(meanMiss: metrics.meanRadialMiss, R: flowConfig.radius),
             optionAccuracy: metrics.optionAccuracy,
+            histogramMatchL1: metrics.histogramMatchL1,
+            inputText: inputText,
+            answerText: answerText,
             params: .init(
                 lif: params.lifThreshold,
                 radialBias: params.radialBias,
@@ -645,6 +682,9 @@ public final class FlowLearningLoop {
         let rates: Rates
         let radius: Radius
         let optionAccuracy: Float?
+        let histogramMatchL1: Float?
+        let inputText: String?
+        let answerText: String?
         let params: Params
         let bins: Bins
         let histogram: Histogram?
