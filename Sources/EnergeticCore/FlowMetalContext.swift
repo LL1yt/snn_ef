@@ -35,6 +35,7 @@ struct FlowMetalParams {
     var aggGamma: Float
     var aggTau: Float
     var recordCompletions: UInt32
+    var recordHistogram: UInt32
 }
 
 final class FlowMetalContext {
@@ -229,7 +230,8 @@ final class FlowMetalContext {
             aggBeta: 1,
             aggGamma: 1,
             aggTau: 1,
-            recordCompletions: 0
+            recordCompletions: 0,
+            recordHistogram: 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -427,7 +429,8 @@ final class FlowMetalContext {
             aggBeta: 1,
             aggGamma: 1,
             aggTau: 1,
-            recordCompletions: 0
+            recordCompletions: 0,
+            recordHistogram: 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -491,7 +494,8 @@ final class FlowMetalContext {
             aggBeta: 1,
             aggGamma: 1,
             aggTau: 1,
-            recordCompletions: 0
+            recordCompletions: 0,
+            recordHistogram: 0
         )
 
         guard let finalEnc = cmd.makeComputeCommandEncoder() else {
@@ -543,7 +547,8 @@ final class FlowMetalContext {
         initialBinsByIndex: [Int32]?,
         targetsRaw: [Float]? = nil,
         aggregator: AggregatorConfig? = nil,
-        includeCompletions: Bool = true
+        includeCompletions: Bool = true,
+        includeHistogram: Bool = true
     ) -> FlowSimulationSummary {
         let token = LoggingHub.beginSignpost("flow.learn.run")
         let count = particles.count
@@ -594,7 +599,9 @@ final class FlowMetalContext {
         writeArray(energy, to: energyBuffer!, count: count)
         writeArray(v, to: vBuffer!, count: count)
 
-        clearBuffer(histogramBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+        if includeHistogram {
+            clearBuffer(histogramBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+        }
         fillBuffer(aliveBuffer!, value: 1, length: count * MemoryLayout<UInt8>.stride)
 
         // Step threadgroup sizing (used for group id mapping in flow_step_train)
@@ -617,7 +624,9 @@ final class FlowMetalContext {
         let finalGroupCount = (count + finalThreadsPerGroup - 1) / finalThreadsPerGroup
         let maxGroupCount = max(stepGroupCount, finalGroupCount)
         ensureGroupHistogramCapacity(groupCount: maxGroupCount, bins: cfg.bins)
-        clearBuffer(groupHistogramBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
+        if includeHistogram {
+            clearBuffer(groupHistogramBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
+        }
 
         // Gains
         var gainsCount: UInt32 = 0
@@ -698,7 +707,8 @@ final class FlowMetalContext {
             aggBeta: wantsWeightedYHat ? (aggregator!.beta) : 1,
             aggGamma: wantsWeightedYHat ? (aggregator!.gamma) : 1,
             aggTau: wantsWeightedYHat ? (aggregator!.tau) : 1,
-            recordCompletions: includeCompletions ? 1 : 0
+            recordCompletions: includeCompletions ? 1 : 0,
+            recordHistogram: includeHistogram ? 1 : 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -755,7 +765,8 @@ final class FlowMetalContext {
         stepEnc.endEncoding()
 
         // Final projection phase (alive-only)
-        let finalParams = FlowMetalParams(
+        if includeHistogram {
+            let finalParams = FlowMetalParams(
             count: UInt32(count),
             bins: UInt32(cfg.bins),
             step: UInt32(steps),
@@ -786,38 +797,40 @@ final class FlowMetalContext {
             aggBeta: 1,
             aggGamma: 1,
             aggTau: 1,
-            recordCompletions: 0
+            recordCompletions: 0,
+            recordHistogram: 1
         )
 
-        if let finalEnc = cmd.makeComputeCommandEncoder() {
-            finalEnc.setComputePipelineState(finalPipeline)
-            finalEnc.setBuffer(posXBuffer, offset: 0, index: 0)
-            finalEnc.setBuffer(posYBuffer, offset: 0, index: 1)
-            finalEnc.setBuffer(energyBuffer, offset: 0, index: 2)
-            finalEnc.setBuffer(histogramBuffer, offset: 0, index: 3)
-            finalEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 4)
-            finalEnc.setBuffer(aliveBuffer, offset: 0, index: 5)
-            finalEnc.setBuffer(gainsBuffer, offset: 0, index: 6)
-            var finalCopy = finalParams
-            finalEnc.setBytes(&finalCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 7)
-            let finalThreadsPerThreadgroup = MTLSize(width: max(1, finalTG), height: 1, depth: 1)
-            finalEnc.dispatchThreads(threads, threadsPerThreadgroup: finalThreadsPerThreadgroup)
-            finalEnc.endEncoding()
-        }
+            if let finalEnc = cmd.makeComputeCommandEncoder() {
+                finalEnc.setComputePipelineState(finalPipeline)
+                finalEnc.setBuffer(posXBuffer, offset: 0, index: 0)
+                finalEnc.setBuffer(posYBuffer, offset: 0, index: 1)
+                finalEnc.setBuffer(energyBuffer, offset: 0, index: 2)
+                finalEnc.setBuffer(histogramBuffer, offset: 0, index: 3)
+                finalEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 4)
+                finalEnc.setBuffer(aliveBuffer, offset: 0, index: 5)
+                finalEnc.setBuffer(gainsBuffer, offset: 0, index: 6)
+                var finalCopy = finalParams
+                finalEnc.setBytes(&finalCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 7)
+                let finalThreadsPerThreadgroup = MTLSize(width: max(1, finalTG), height: 1, depth: 1)
+                finalEnc.dispatchThreads(threads, threadsPerThreadgroup: finalThreadsPerThreadgroup)
+                finalEnc.endEncoding()
+            }
 
-        // Reduce histogram (sum across maxGroupCount)
-        if let reduceEnc = cmd.makeComputeCommandEncoder() {
-            reduceEnc.setComputePipelineState(reducePipeline)
-            reduceEnc.setBuffer(histogramBuffer, offset: 0, index: 0)
-            reduceEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 1)
-            var reduceParams = finalParams
-            reduceParams.groupCount = UInt32(maxGroupCount)
-            reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
-            let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
-            let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
-            let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
-            reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
-            reduceEnc.endEncoding()
+            // Reduce histogram (sum across maxGroupCount)
+            if let reduceEnc = cmd.makeComputeCommandEncoder() {
+                reduceEnc.setComputePipelineState(reducePipeline)
+                reduceEnc.setBuffer(histogramBuffer, offset: 0, index: 0)
+                reduceEnc.setBuffer(groupHistogramBuffer, offset: 0, index: 1)
+                var reduceParams = finalParams
+                reduceParams.groupCount = UInt32(maxGroupCount)
+                reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+                let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+                let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+                let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+                reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+                reduceEnc.endEncoding()
+            }
         }
 
         if wantsWeightedYHat, let weightedSumBuffer, let weightSumBuffer, let weightedYHatBuffer {
@@ -898,7 +911,12 @@ final class FlowMetalContext {
         cmd.commit()
         cmd.waitUntilCompleted()
 
-        let bins: [Float] = readArray(from: histogramBuffer!, count: cfg.bins)
+        let bins: [Float]
+        if includeHistogram {
+            bins = readArray(from: histogramBuffer!, count: cfg.bins)
+        } else {
+            bins = []
+        }
 
         let weightedYHat: [Float]?
         if wantsWeightedYHat {
@@ -1038,7 +1056,8 @@ final class FlowMetalContext {
             aggBeta: 1,
             aggGamma: 1,
             aggTau: 1,
-            recordCompletions: 0
+            recordCompletions: 0,
+            recordHistogram: 0
         )
 
         guard let cmd = queue.makeCommandBuffer(),

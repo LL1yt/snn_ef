@@ -25,6 +25,10 @@ public struct GPUCompletion: Sendable {
 
 /// Summary from one GPU-run used by the learning fast path.
 public struct FlowSimulationSummary: Sendable {
+    /// Optional bins output.
+    ///
+    /// - Note: This array can be empty if the caller requested `includeHistogram: false` to skip
+    ///   histogram accumulation/readback for maximum training throughput.
     public let bins: [Float]
     public let spikeCount: UInt32
     public let particleStepCount: UInt32

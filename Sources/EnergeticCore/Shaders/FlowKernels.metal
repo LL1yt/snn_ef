@@ -35,6 +35,8 @@ struct FlowParams {
     float aggTau;
     // Perf: when 0, do not write per-particle completion record buffers (only counters/aggregates).
     uint recordCompletions;
+    // Perf: when 0, do not accumulate groupHistogram/histogram (bins output).
+    uint recordHistogram;
 };
 
 static inline uint mix32(uint v) {
@@ -372,9 +374,12 @@ kernel void flow_step_train(
             float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;
             float eAdj = g * max(0.0f, e);
 
-            // Raw histogram contribution (for diagnostics/parity with FlowRouter.run)
             uint idx = groupId * p.bins + uint(b);
-            atomic_fetch_add_explicit(&groupHistogram[idx], eAdj, memory_order_relaxed);
+
+            // Raw histogram contribution (for diagnostics/parity with FlowRouter.run)
+            if (p.recordHistogram != 0) {
+                atomic_fetch_add_explicit(&groupHistogram[idx], eAdj, memory_order_relaxed);
+            }
 
             // Scalar metrics accumulation (GPU): meanRadialMiss and boundaryLoss
             {

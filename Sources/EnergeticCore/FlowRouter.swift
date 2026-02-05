@@ -51,6 +51,8 @@ public final class FlowRouter {
     /// - Important: Setting `includeCompletions` to `false` disables GPU→CPU readback of per-particle completion records.
     ///   This is safe when you only need aggregated signals/metrics (e.g. `weightedYHat`, scalar losses), but any
     ///   downstream CPU analysis that needs individual completions must request `includeCompletions: true`.
+    /// - Important: Setting `includeHistogram` to `false` skips histogram accumulation and readback (`summary.bins` will be empty).
+    ///   This is safe for the training loop (loss uses `yHat`), and improves throughput.
     public func simulateWithCompletions(
         initial particles: [FlowParticle],
         gains: [Float]? = nil,
@@ -58,7 +60,8 @@ public final class FlowRouter {
         initialBins: [Int32]? = nil,
         targetsRaw: [Float]? = nil,
         aggregator: AggregatorConfig? = nil,
-        includeCompletions: Bool = true
+        includeCompletions: Bool = true,
+        includeHistogram: Bool = true
     ) -> FlowSimulationSummary {
         return metal.simulateWithCompletions(
             initial: particles,
@@ -69,7 +72,8 @@ public final class FlowRouter {
             initialBinsByIndex: initialBins,
             targetsRaw: targetsRaw,
             aggregator: aggregator,
-            includeCompletions: includeCompletions
+            includeCompletions: includeCompletions,
+            includeHistogram: includeHistogram
         )
     }
 }

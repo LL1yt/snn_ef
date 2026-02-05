@@ -107,11 +107,13 @@ final class FlowLearningIntegrationTests: XCTestCase {
             initialBins: initialBins,
             targetsRaw: targets,
             aggregator: agg,
-            includeCompletions: false
+            includeCompletions: false,
+            includeHistogram: false
         )
 
         XCTAssertNotNil(summary.weightedYHat)
         XCTAssertTrue(summary.completions.isEmpty)
+        XCTAssertTrue(summary.bins.isEmpty)
     }
 
     func testGPUWeightedYHatMatchesCPUAggregator() {

@@ -301,7 +301,9 @@ public final class FlowLearningLoop {
                 aggregator: wantsWeighted ? learningConfig.aggregatorConfig : nil,
                 // Optimization: completions GPU→CPU readback is only needed for CPU-side aggregation/analysis.
                 // UI tracing uses the slow path (stepWithEvents), so disabling readback here does not affect UI logs.
-                includeCompletions: !wantsWeighted
+                includeCompletions: !wantsWeighted,
+                // Optimization: histogram bins are not used by the training loop (loss uses yHat), so skip their GPU work/readback.
+                includeHistogram: false
             )
             if wantsWeighted {
                 precondition(summary.weightedYHat != nil, "expected weightedYHat when outputSignal=weighted_bins_gpu")
