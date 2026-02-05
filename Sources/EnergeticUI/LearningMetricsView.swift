@@ -8,6 +8,10 @@ public struct LearningMetricsView: View {
     @State private var selectedIndex: Int?
     @State private var followLatest: Bool = true
     @State private var snapToGrid: Bool = true
+    @State private var speedBoost: Double = 6.0
+    @State private var angleBoost: Double = 2.6
+    @State private var maxLabelCount: Int = 4
+    @State private var labelMode: LabelMode = .key
 
     public init(logFileURL: URL?, title: String = "Learning metrics", pollInterval: TimeInterval = 0.5, maxRecords: Int = 200) {
         _viewModel = StateObject(wrappedValue: LearningMetricsViewModel(
@@ -77,7 +81,11 @@ public struct LearningMetricsView: View {
                 traces: record.traces ?? [],
                 paths: record.paths ?? [],
                 radius: record.radius.R,
-                snapToGrid: snapToGrid
+                snapToGrid: snapToGrid,
+                speedBoost: speedBoost,
+                angleBoost: angleBoost,
+                maxLabelCount: maxLabelCount,
+                labelMode: labelMode
             )
             .frame(minWidth: 520, maxWidth: CGFloat.infinity)
         } else {
@@ -224,6 +232,37 @@ public struct LearningMetricsView: View {
             Toggle("Snap", isOn: $snapToGrid)
                 .toggleStyle(.switch)
                 .disabled(count == 0)
+
+            Menu(labelMode.label) {
+                ForEach(LabelMode.allCases, id: \.self) { mode in
+                    Button(mode.label) { labelMode = mode }
+                }
+            }
+            .font(.caption)
+
+            HStack(spacing: 6) {
+                Text("Len")
+                Slider(value: $speedBoost, in: 1...12, step: 0.5)
+                    .frame(width: 90)
+                Text(String(format: "%.1f", speedBoost))
+                    .font(.caption2.monospacedDigit())
+            }
+
+            HStack(spacing: 6) {
+                Text("Angle")
+                Slider(value: $angleBoost, in: 1...4, step: 0.1)
+                    .frame(width: 90)
+                Text(String(format: "%.1f", angleBoost))
+                    .font(.caption2.monospacedDigit())
+            }
+
+            HStack(spacing: 6) {
+                Text("Labels")
+                Stepper(value: $maxLabelCount, in: 0...8) { EmptyView() }
+                    .labelsHidden()
+                Text("\(maxLabelCount)")
+                    .font(.caption2.monospacedDigit())
+            }
 
             if let record = currentRecord {
                 Text("Epoch \(record.epoch)")
@@ -599,6 +638,10 @@ struct StreamTracksView: View {
     let paths: [LearningLogPayload.Path]
     let radius: Float?
     let snapToGrid: Bool
+    let speedBoost: Double
+    let angleBoost: Double
+    let maxLabelCount: Int
+    let labelMode: LabelMode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -619,7 +662,11 @@ struct StreamTracksView: View {
                             steps: trackSteps(for: idx),
                             color: streamColor(for: idx),
                             radius: radius,
-                            snapToGrid: snapToGrid
+                            snapToGrid: snapToGrid,
+                            speedBoost: CGFloat(speedBoost),
+                            angleBoost: CGFloat(angleBoost),
+                            maxLabelCount: maxLabelCount,
+                            labelMode: labelMode
                         )
                     }
                 }
@@ -687,12 +734,24 @@ private struct StreamTrackRow: View {
     let color: Color
     let radius: Float?
     let snapToGrid: Bool
+    let speedBoost: CGFloat
+    let angleBoost: CGFloat
+    let maxLabelCount: Int
+    let labelMode: LabelMode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if let last = steps.last, let radius {
+                    let reached = last.r >= radius * 0.98
+                    Text(reached ? "Reached boundary" : "Before boundary")
+                        .font(.caption2)
+                        .foregroundColor(reached ? .green : .secondary)
+                }
+            }
             GeometryReader { geo in
                 Canvas { ctx, size in
                     guard steps.count > 1 else { return }
@@ -709,7 +768,7 @@ private struct StreamTrackRow: View {
                     let weights = segmentWeights()
                     let totalWeight = max(weights.reduce(0, +), 1)
                     let scale = availableWidth / totalWeight
-                    let angleScale: CGFloat = 1.8
+                    let angleScale: CGFloat = angleBoost
 
                     var current = CGPoint(x: padding, y: centerY)
                     let keyIndices = keyStepIndices()
@@ -736,6 +795,10 @@ private struct StreamTrackRow: View {
                             ctx.stroke(segment, with: .color(.red.opacity(0.9)), lineWidth: width + 1.2)
                         } else {
                             ctx.stroke(segment, with: .color(color.opacity(0.8)), lineWidth: width)
+                        }
+
+                        if let radius, cur.r >= radius * 0.9 {
+                            ctx.stroke(segment, with: .color(.green.opacity(0.45)), lineWidth: width + 0.6)
                         }
 
                         if keyIndices.contains(idx) {
@@ -774,7 +837,7 @@ private struct StreamTrackRow: View {
     private func segmentWeights() -> [CGFloat] {
         var weights: [CGFloat] = []
         for idx in 1..<steps.count {
-            let w = CGFloat(max(0.02, steps[idx].speed))
+            let w = CGFloat(max(0.02, steps[idx].speed)) * speedBoost
             weights.append(w)
         }
         return weights
@@ -782,11 +845,30 @@ private struct StreamTrackRow: View {
 
     private func keyStepIndices() -> Set<Int> {
         guard steps.count > 2 else { return [0, steps.count - 1] }
-        var indices: Set<Int> = [0, steps.count - 1, steps.count / 2]
-        for (idx, step) in steps.enumerated() where step.spiked {
-            indices.insert(idx)
+        switch labelMode {
+        case .off:
+            return []
+        case .dense:
+            let count = min(maxLabelCount, steps.count)
+            return Set((0..<count).map { Int((Double($0) / Double(max(count - 1, 1))) * Double(steps.count - 1)) })
+        case .key:
+            var indices: Set<Int> = [0, steps.count - 1]
+            for (idx, step) in steps.enumerated() where step.spiked {
+                indices.insert(idx)
+            }
+            if steps.count >= 4 {
+                indices.insert(steps.count / 2)
+            }
+            if steps.count >= 6 {
+                indices.insert(steps.count / 3)
+                indices.insert(2 * steps.count / 3)
+            }
+            if indices.count > maxLabelCount {
+                let sorted = indices.sorted()
+                return Set(sorted.prefix(maxLabelCount))
+            }
+            return indices
         }
-        return indices
     }
 
     private func drawBoundaryArc(ctx: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
@@ -874,6 +956,20 @@ private struct TrackLegendView: View {
                 .foregroundColor(color)
                 .frame(width: 18, height: 6)
             Text(label)
+        }
+    }
+}
+
+private enum LabelMode: CaseIterable {
+    case off
+    case key
+    case dense
+
+    var label: String {
+        switch self {
+        case .off: return "Labels: Off"
+        case .key: return "Labels: Key"
+        case .dense: return "Labels: Dense"
         }
     }
 }
