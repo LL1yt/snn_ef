@@ -26,6 +26,14 @@ struct FlowMetalParams {
     var gainsCount: UInt32
     var threadsPerGroup: UInt32
     var groupCount: UInt32
+    // Weighted-aggregator parameters (training fast path)
+    var aggEnabled: UInt32
+    var aggSigmaR: Float
+    var aggSigmaE: Float
+    var aggAlpha: Float
+    var aggBeta: Float
+    var aggGamma: Float
+    var aggTau: Float
 }
 
 final class FlowMetalContext {
@@ -66,6 +74,13 @@ final class FlowMetalContext {
     private var completionEnergyBuffer: MTLBuffer?
     private var completionSpikedBuffer: MTLBuffer?
     private var completionInitialBinBuffer: MTLBuffer?
+
+    // Weighted yHat aggregation (optional)
+    private var targetsRawBuffer: MTLBuffer?
+    private var weightedSumBuffer: MTLBuffer?
+    private var weightSumBuffer: MTLBuffer?
+    private var groupWeightedSumBuffer: MTLBuffer?
+    private var groupWeightSumBuffer: MTLBuffer?
 
     private var groupSpikeCountBuffer: MTLBuffer?
     private var groupStepCountBuffer: MTLBuffer?
@@ -195,7 +210,14 @@ final class FlowMetalContext {
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(threadsPerGroup),
-            groupCount: UInt32(groupCount)
+            groupCount: UInt32(groupCount),
+            aggEnabled: 0,
+            aggSigmaR: 1,
+            aggSigmaE: 1,
+            aggAlpha: 1,
+            aggBeta: 1,
+            aggGamma: 1,
+            aggTau: 1
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -385,7 +407,14 @@ final class FlowMetalContext {
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(stepThreadsPerGroup),
-            groupCount: UInt32(stepGroupCount)
+            groupCount: UInt32(stepGroupCount),
+            aggEnabled: 0,
+            aggSigmaR: 1,
+            aggSigmaE: 1,
+            aggAlpha: 1,
+            aggBeta: 1,
+            aggGamma: 1,
+            aggTau: 1
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -441,7 +470,14 @@ final class FlowMetalContext {
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(finalThreadsPerGroup),
-            groupCount: UInt32(finalGroupCount)
+            groupCount: UInt32(finalGroupCount),
+            aggEnabled: 0,
+            aggSigmaR: 1,
+            aggSigmaE: 1,
+            aggAlpha: 1,
+            aggBeta: 1,
+            aggGamma: 1,
+            aggTau: 1
         )
 
         guard let finalEnc = cmd.makeComputeCommandEncoder() else {
@@ -490,7 +526,9 @@ final class FlowMetalContext {
         baseSeed: UInt32,
         gains: [Float]?,
         steps: Int,
-        initialBinsByIndex: [Int32]?
+        initialBinsByIndex: [Int32]?,
+        targetsRaw: [Float]? = nil,
+        aggregator: AggregatorConfig? = nil
     ) -> FlowSimulationSummary {
         let token = LoggingHub.beginSignpost("flow.learn.run")
         let count = particles.count
@@ -571,6 +609,22 @@ final class FlowMetalContext {
             writeArray(one, to: gainsBuffer!, count: 1)
         }
 
+        let wantsWeightedYHat =
+            (targetsRaw != nil)
+            && (aggregator != nil)
+            && (targetsRaw!.count == cfg.bins)
+
+        if wantsWeightedYHat {
+            writeArray(targetsRaw!, to: targetsRawBuffer!, count: cfg.bins)
+            clearBuffer(weightedSumBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+            clearBuffer(weightSumBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+            clearBuffer(groupWeightedSumBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
+            clearBuffer(groupWeightSumBuffer!, length: maxGroupCount * cfg.bins * MemoryLayout<Float>.stride)
+        } else {
+            // Still bind buffers; kernel checks aggEnabled.
+            clearBuffer(targetsRawBuffer!, length: cfg.bins * MemoryLayout<Float>.stride)
+        }
+
         // Initial bins (always provided; -1 when unknown)
         if let initialBinsByIndex, initialBinsByIndex.count == count {
             writeArray(initialBinsByIndex, to: initialBinByIndexBuffer!, count: count)
@@ -612,7 +666,14 @@ final class FlowMetalContext {
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(stepThreadsPerGroup),
-            groupCount: UInt32(stepGroupCount)
+            groupCount: UInt32(stepGroupCount),
+            aggEnabled: wantsWeightedYHat ? 1 : 0,
+            aggSigmaR: wantsWeightedYHat ? (aggregator!.sigmaR) : 1,
+            aggSigmaE: wantsWeightedYHat ? (aggregator!.sigmaE) : 1,
+            aggAlpha: wantsWeightedYHat ? (aggregator!.alpha) : 1,
+            aggBeta: wantsWeightedYHat ? (aggregator!.beta) : 1,
+            aggGamma: wantsWeightedYHat ? (aggregator!.gamma) : 1,
+            aggTau: wantsWeightedYHat ? (aggregator!.tau) : 1
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -652,13 +713,16 @@ final class FlowMetalContext {
         stepEnc.setBuffer(groupSpikeCountBuffer, offset: 0, index: 20)
         stepEnc.setBuffer(groupStepCountBuffer, offset: 0, index: 21)
         stepEnc.setBuffer(groupCompletionCountBuffer, offset: 0, index: 22)
+        stepEnc.setBuffer(groupWeightedSumBuffer, offset: 0, index: 23)
+        stepEnc.setBuffer(groupWeightSumBuffer, offset: 0, index: 24)
+        stepEnc.setBuffer(targetsRawBuffer, offset: 0, index: 25)
 
         let threadsPerThreadgroup = MTLSize(width: max(1, stepTG), height: 1, depth: 1)
         let threads = MTLSize(width: count, height: 1, depth: 1)
         for s in 0..<max(0, steps) {
             stepParams.step = UInt32(s)
             var paramsCopy = stepParams
-            stepEnc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 23)
+            stepEnc.setBytes(&paramsCopy, length: MemoryLayout<FlowMetalParams>.stride, index: 26)
             stepEnc.dispatchThreads(threads, threadsPerThreadgroup: threadsPerThreadgroup)
         }
         stepEnc.endEncoding()
@@ -687,7 +751,14 @@ final class FlowMetalContext {
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(finalThreadsPerGroup),
-            groupCount: UInt32(finalGroupCount)
+            groupCount: UInt32(finalGroupCount),
+            aggEnabled: 0,
+            aggSigmaR: 1,
+            aggSigmaE: 1,
+            aggAlpha: 1,
+            aggBeta: 1,
+            aggGamma: 1,
+            aggTau: 1
         )
 
         if let finalEnc = cmd.makeComputeCommandEncoder() {
@@ -721,10 +792,52 @@ final class FlowMetalContext {
             reduceEnc.endEncoding()
         }
 
+        if wantsWeightedYHat, let weightedSumBuffer, let weightSumBuffer {
+            // Reduce weighted sums across step-groupCount
+            if let reduceEnc = cmd.makeComputeCommandEncoder() {
+                reduceEnc.setComputePipelineState(reducePipeline)
+                reduceEnc.setBuffer(weightedSumBuffer, offset: 0, index: 0)
+                reduceEnc.setBuffer(groupWeightedSumBuffer, offset: 0, index: 1)
+                var reduceParams = stepParams
+                reduceParams.groupCount = UInt32(stepGroupCount)
+                reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+                let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+                let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+                let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+                reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+                reduceEnc.endEncoding()
+            }
+            if let reduceEnc = cmd.makeComputeCommandEncoder() {
+                reduceEnc.setComputePipelineState(reducePipeline)
+                reduceEnc.setBuffer(weightSumBuffer, offset: 0, index: 0)
+                reduceEnc.setBuffer(groupWeightSumBuffer, offset: 0, index: 1)
+                var reduceParams = stepParams
+                reduceParams.groupCount = UInt32(stepGroupCount)
+                reduceEnc.setBytes(&reduceParams, length: MemoryLayout<FlowMetalParams>.stride, index: 2)
+                let reduceTG = min(reducePipeline.maxTotalThreadsPerThreadgroup, reducePipeline.threadExecutionWidth * 4)
+                let reduceThreadsPerThreadgroup = MTLSize(width: max(1, reduceTG), height: 1, depth: 1)
+                let reduceThreads = MTLSize(width: cfg.bins, height: 1, depth: 1)
+                reduceEnc.dispatchThreads(reduceThreads, threadsPerThreadgroup: reduceThreadsPerThreadgroup)
+                reduceEnc.endEncoding()
+            }
+        }
+
         cmd.commit()
         cmd.waitUntilCompleted()
 
         let bins: [Float] = readArray(from: histogramBuffer!, count: cfg.bins)
+
+        let weightedYHat: [Float]?
+        if wantsWeightedYHat {
+            let sumWE: [Float] = readArray(from: weightedSumBuffer!, count: cfg.bins)
+            let sumW: [Float] = readArray(from: weightSumBuffer!, count: cfg.bins)
+            let eps: Float = 1e-8
+            weightedYHat = zip(sumWE, sumW).map { (we, w) in
+                w > eps ? (we / w) : 0
+            }
+        } else {
+            weightedYHat = nil
+        }
 
         let groupSpikes: [UInt32] = readArray(from: groupSpikeCountBuffer!, count: stepGroupCount)
         let groupSteps: [UInt32] = readArray(from: groupStepCountBuffer!, count: stepGroupCount)
@@ -763,7 +876,8 @@ final class FlowMetalContext {
             spikeCount: spikeCount,
             particleStepCount: particleStepCount,
             completionCount: completionCount,
-            completions: completions
+            completions: completions,
+            weightedYHat: weightedYHat
         )
     }
 
@@ -824,7 +938,14 @@ final class FlowMetalContext {
             finalWeightPower: cfg.finalWeightPower,
             gainsCount: gainsCount,
             threadsPerGroup: UInt32(threadsPerGroup),
-            groupCount: UInt32(groupCount)
+            groupCount: UInt32(groupCount),
+            aggEnabled: 0,
+            aggSigmaR: 1,
+            aggSigmaE: 1,
+            aggAlpha: 1,
+            aggBeta: 1,
+            aggGamma: 1,
+            aggTau: 1
         )
 
         guard let cmd = queue.makeCommandBuffer(),
@@ -899,6 +1020,11 @@ final class FlowMetalContext {
         binsCapacity = max(bins, binsCapacity * 2, 64)
         histogramBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
         gainsBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+
+        // simulateWithCompletions weighted yHat
+        targetsRawBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        weightedSumBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
+        weightSumBuffer = device.makeBuffer(length: binsCapacity * MemoryLayout<Float>.stride, options: .storageModeShared)
     }
 
     private func ensureGroupHistogramCapacity(groupCount: Int, bins: Int) {
@@ -910,6 +1036,10 @@ final class FlowMetalContext {
             groupHistogramCapacityBins = max(desiredBins, groupHistogramCapacityBins * 2, 1)
             let length = groupHistogramCapacityGroups * groupHistogramCapacityBins * MemoryLayout<Float>.stride
             groupHistogramBuffer = device.makeBuffer(length: length, options: .storageModeShared)
+
+            // weighted yHat uses the same group layout as groupHistogram
+            groupWeightedSumBuffer = device.makeBuffer(length: length, options: .storageModeShared)
+            groupWeightSumBuffer = device.makeBuffer(length: length, options: .storageModeShared)
         }
     }
 

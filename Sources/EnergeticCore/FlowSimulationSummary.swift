@@ -31,17 +31,23 @@ public struct FlowSimulationSummary: Sendable {
     public let completionCount: UInt32
     public let completions: [GPUCompletion]
 
+    /// Optional weighted yHat computed on GPU (CompletionAggregator equivalent).
+    /// Present only when requested.
+    public let weightedYHat: [Float]?
+
     public init(
         bins: [Float],
         spikeCount: UInt32,
         particleStepCount: UInt32,
         completionCount: UInt32,
-        completions: [GPUCompletion]
+        completions: [GPUCompletion],
+        weightedYHat: [Float]? = nil
     ) {
         self.bins = bins
         self.spikeCount = spikeCount
         self.particleStepCount = particleStepCount
         self.completionCount = completionCount
         self.completions = completions
+        self.weightedYHat = weightedYHat
     }
 }

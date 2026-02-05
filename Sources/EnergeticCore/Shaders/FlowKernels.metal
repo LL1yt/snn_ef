@@ -25,6 +25,14 @@ struct FlowParams {
     uint gainsCount;
     uint threadsPerGroup;
     uint groupCount;
+    // Weighted-aggregator parameters (used by training fast path only)
+    uint aggEnabled;
+    float aggSigmaR;
+    float aggSigmaE;
+    float aggAlpha;
+    float aggBeta;
+    float aggGamma;
+    float aggTau;
 };
 
 static inline uint mix32(uint v) {
@@ -226,7 +234,10 @@ kernel void flow_step_train(
     device atomic_uint *groupSpikeCounts [[buffer(20)]],
     device atomic_uint *groupStepCounts [[buffer(21)]],
     device atomic_uint *groupCompletionCounts [[buffer(22)]],
-    constant FlowParams &p [[buffer(23)]],
+    device atomic_float *groupWeightedSum [[buffer(23)]],
+    device atomic_float *groupWeightSum [[buffer(24)]],
+    device const float *targetsRaw [[buffer(25)]],
+    constant FlowParams &p [[buffer(26)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= p.count) { return; }
@@ -351,9 +362,38 @@ kernel void flow_step_train(
             }
 
             float g = (p.gainsCount == p.bins) ? gains[b] : 1.0f;
-            float contrib = g * max(0.0f, e);
+            float eAdj = g * max(0.0f, e);
+
+            // Raw histogram contribution (for diagnostics/parity with FlowRouter.run)
             uint idx = groupId * p.bins + uint(b);
-            atomic_fetch_add_explicit(&groupHistogram[idx], contrib, memory_order_relaxed);
+            atomic_fetch_add_explicit(&groupHistogram[idx], eAdj, memory_order_relaxed);
+
+            // Weighted yHat accumulation (CompletionAggregator equivalent) when enabled
+            if (p.aggEnabled != 0) {
+                const float eps = 1e-8f;
+
+                float rDist = fabs(r - p.radius);
+                float wDist = exp(-rDist / max(p.aggSigmaR, eps));
+
+                float t = targetsRaw[b];
+                float eDist = fabs(eAdj - t);
+                float wEnergy = exp(-eDist / max(p.aggSigmaE, eps));
+
+                float wAlign = 1.0f;
+                int initialBin = initialBinByIndex[gid];
+                if (initialBin >= 0) {
+                    int diff = abs(initialBin - b);
+                    int wrapped = min(diff, int(p.bins) - diff);
+                    float angDist = (float(wrapped) / max(1.0f, float(p.bins))) * 6.283185307179586f;
+                    wAlign = exp(-angDist / max(p.aggTau, eps));
+                }
+
+                float w = pow(wDist, p.aggAlpha) * pow(wEnergy, p.aggBeta) * pow(wAlign, p.aggGamma);
+
+                atomic_fetch_add_explicit(&groupWeightedSum[idx], w * eAdj, memory_order_relaxed);
+                atomic_fetch_add_explicit(&groupWeightSum[idx], w, memory_order_relaxed);
+            }
+
             aliveFlag = false;
         }
     }

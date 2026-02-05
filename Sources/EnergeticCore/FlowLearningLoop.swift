@@ -7,12 +7,18 @@ import SharedInfrastructure
 // MARK: - Learning Configuration
 
 public struct LearningConfig {
+    public enum OutputSignal: String, Sendable {
+        case completionCPU = "completion_cpu"
+        case weightedBinsGPU = "weighted_bins_gpu"
+    }
+
     public let enabled: Bool
     public let epochs: Int
     public let stepsPerEpoch: Int
     public let targetSpikeRate: Float
     public let logEvery: Int
     public let logEveryUI: Int
+    public let outputSignal: OutputSignal
     public let learningRates: LearningRates
     public let lossWeights: LossWeights
     public let negative: NegativeConfig
@@ -28,6 +34,7 @@ public struct LearningConfig {
         targetSpikeRate: Float,
         logEvery: Int,
         logEveryUI: Int,
+        outputSignal: OutputSignal = .completionCPU,
         learningRates: LearningRates,
         lossWeights: LossWeights,
         negative: NegativeConfig = .disabled,
@@ -42,6 +49,7 @@ public struct LearningConfig {
         self.targetSpikeRate = targetSpikeRate
         self.logEvery = logEvery
         self.logEveryUI = logEveryUI
+        self.outputSignal = outputSignal
         self.learningRates = learningRates
         self.lossWeights = lossWeights
         self.negative = negative
@@ -111,6 +119,7 @@ public struct LearningConfig {
             targetSpikeRate: Float(learning.targetSpikeRate),
             logEvery: learning.logEvery,
             logEveryUI: learning.logEveryUI,
+            outputSignal: OutputSignal(rawValue: (learning.outputSignal ?? "completion_cpu").lowercased()) ?? .completionCPU,
             learningRates: .init(
                 gain: Float(learning.lr.gain),
                 lif: Float(learning.lr.lif),
@@ -188,6 +197,7 @@ public final class FlowLearningLoop {
         var totalSpikes: UInt32 = 0
         var totalParticleSteps: UInt32 = 0
         let initialParticleCount = seeds.count
+        var gpuWeightedYHat: [Float]? = nil
 
         // Initial bins for alignment weight (dense by seed index; store -1 when unknown)
         var initialBinsByIndex = [Int32](repeating: -1, count: seeds.count)
@@ -262,12 +272,16 @@ public final class FlowLearningLoop {
             }
         } else {
             // Fast path: one GPU-run with completions + counters
+            let wantsWeighted = (learningConfig.outputSignal == .weightedBinsGPU) && (targets.count == flowConfig.bins)
             let summary = router.simulateWithCompletions(
                 initial: seeds,
                 gains: params.gains,
                 steps: learningConfig.stepsPerEpoch,
-                initialBins: initialBinsByIndex
+                initialBins: initialBinsByIndex,
+                targetsRaw: wantsWeighted ? targets : nil,
+                aggregator: wantsWeighted ? learningConfig.aggregatorConfig : nil
             )
+            gpuWeightedYHat = summary.weightedYHat
             totalSpikes = summary.spikeCount
             totalParticleSteps = summary.particleStepCount
 
@@ -288,14 +302,19 @@ public final class FlowLearningLoop {
             }
         }
 
-        // Aggregate completions
-        let yHat = CompletionAggregator.aggregate(
-            completions: allCompletions,
-            targets: targets,
-            config: learningConfig.aggregatorConfig,
-            bins: flowConfig.bins,
-            gains: params.gains
-        )
+        // Output signal for losses (CPU aggregator by default; optional GPU weighted yHat in fast path)
+        let yHat: [Float]
+        if let gpuWeightedYHat {
+            yHat = gpuWeightedYHat
+        } else {
+            yHat = CompletionAggregator.aggregate(
+                completions: allCompletions,
+                targets: targets,
+                config: learningConfig.aggregatorConfig,
+                bins: flowConfig.bins,
+                gains: params.gains
+            )
+        }
         // Normalize for loss computation (keep raw for UI/metrics)
         let yHatNorm = normalizeBins(yHat)
         let targetNorm = normalizeBins(targets)

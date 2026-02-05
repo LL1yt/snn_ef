@@ -213,6 +213,14 @@ enum Validation {
         if learning.aggregator.sigmaE <= 0 {
             throw ConfigError.invalidLearningParameter("aggregator.sigma_e must be > 0 (got \(learning.aggregator.sigmaE))")
         }
+        // Output signal
+        if let signal = learning.outputSignal?.lowercased() {
+            let validSignals = ["completion_cpu", "weighted_bins_gpu"]
+            if !validSignals.contains(signal) {
+                throw ConfigError.invalidLearningParameter("output_signal must be one of \(validSignals) (got \(signal))")
+            }
+        }
+
         // Target type
         let validTypes = ["capsule-digits", "file"]
         if !validTypes.contains(learning.targets.type) {
@@ -604,6 +612,7 @@ public struct ConfigRoot: Decodable {
                 public let logSilence: Bool
                 public let logEvery: Int
                 public let logEveryUI: Int
+                public let outputSignal: String?
                 public let dataset: Dataset
                 public let negative: Negative
                 public let lr: LearningRates
@@ -623,6 +632,7 @@ public struct ConfigRoot: Decodable {
                     case logSilence = "log_silence"
                     case logEvery = "log_every"
                     case logEveryUI = "log_every_ui"
+                    case outputSignal = "output_signal"
                     case dataset
                     case negative
                     case lr
@@ -668,6 +678,28 @@ public struct ConfigRoot: Decodable {
                         shuffle = try container.decode(Bool.self, forKey: .shuffle)
                         seed = try container.decode(Int.self, forKey: .seed)
                         autoScan = try container.decodeIfPresent(Bool.self, forKey: .autoScan) ?? false
+                    }
+
+                    public init(
+                        name: String,
+                        localPath: String,
+                        validPath: String?,
+                        cacheMode: String,
+                        trainLimit: Int,
+                        validLimit: Int,
+                        shuffle: Bool,
+                        seed: Int,
+                        autoScan: Bool = false
+                    ) {
+                        self.name = name
+                        self.localPath = localPath
+                        self.validPath = validPath
+                        self.cacheMode = cacheMode
+                        self.trainLimit = trainLimit
+                        self.validLimit = validLimit
+                        self.shuffle = shuffle
+                        self.seed = seed
+                        self.autoScan = autoScan
                     }
                 }
 
@@ -757,7 +789,7 @@ public struct ConfigRoot: Decodable {
                     }
                 }
 
-                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, logEvery: Int, logEveryUI: Int, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, gainErrorPower: Double = 1.0, gainErrorScale: Double = 1.0, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
+                public init(enabled: Bool, epochs: Int, stepsPerEpoch: Int, targetSpikeRate: Double, evalEvery: Int, logSilence: Bool, logEvery: Int, logEveryUI: Int, outputSignal: String? = nil, dataset: Dataset, negative: Negative, lr: LearningRates, weights: LossWeights, gainErrorPower: Double = 1.0, gainErrorScale: Double = 1.0, bounds: ParameterBounds, aggregator: Aggregator, targets: Targets) {
                     self.enabled = enabled
                     self.epochs = epochs
                     self.stepsPerEpoch = stepsPerEpoch
@@ -766,6 +798,7 @@ public struct ConfigRoot: Decodable {
                     self.logSilence = logSilence
                     self.logEvery = logEvery
                     self.logEveryUI = logEveryUI
+                    self.outputSignal = outputSignal
                     self.dataset = dataset
                     self.negative = negative
                     self.lr = lr
@@ -787,6 +820,7 @@ public struct ConfigRoot: Decodable {
                     logSilence = try container.decodeIfPresent(Bool.self, forKey: .logSilence) ?? false
                     logEvery = try container.decodeIfPresent(Int.self, forKey: .logEvery) ?? 1
                     logEveryUI = try container.decodeIfPresent(Int.self, forKey: .logEveryUI) ?? logEvery
+                    outputSignal = try container.decodeIfPresent(String.self, forKey: .outputSignal)
                     dataset = try container.decode(Dataset.self, forKey: .dataset)
                     negative = try container.decode(Negative.self, forKey: .negative)
                     lr = try container.decode(LearningRates.self, forKey: .lr)

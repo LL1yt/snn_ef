@@ -51,7 +51,9 @@ public final class FlowRouter {
         initial particles: [FlowParticle],
         gains: [Float]? = nil,
         steps: Int,
-        initialBins: [Int32]? = nil
+        initialBins: [Int32]? = nil,
+        targetsRaw: [Float]? = nil,
+        aggregator: AggregatorConfig? = nil
     ) -> FlowSimulationSummary {
         return metal.simulateWithCompletions(
             initial: particles,
@@ -59,7 +61,9 @@ public final class FlowRouter {
             baseSeed: baseSeed,
             gains: gains,
             steps: steps,
-            initialBinsByIndex: initialBins
+            initialBinsByIndex: initialBins,
+            targetsRaw: targetsRaw,
+            aggregator: aggregator
         )
     }
 }
