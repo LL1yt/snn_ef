@@ -249,11 +249,11 @@ final class FlowLearningIntegrationTests: XCTestCase {
         }
 
         // Wrong targets: rotate by 1 and 2 bins
-        let wrong1 = Array(targets.dropFirst()) + [targets.first ?? 0]
-        let wrong2 = Array(wrong1.dropFirst()) + [wrong1.first ?? 0]
-        let wrongNorm = [normalize(wrong1), normalize(wrong2)]
+        let wrong1: [Float] = Array(targets.dropFirst()) + [targets.first ?? Float(0)]
+        let wrong2: [Float] = Array(wrong1.dropFirst()) + [wrong1.first ?? Float(0)]
+        let wrongNorm: [[Float]] = [normalize(wrong1), normalize(wrong2)]
 
-        let optionTargets = [targets, wrong1, wrong2]
+        let optionTargets: [[Float]] = [targets, wrong1, wrong2]
         let correctIndex = 0
 
         let gains = [Float](repeating: 1.0, count: flowCfg.bins)
@@ -297,7 +297,9 @@ final class FlowLearningIntegrationTests: XCTestCase {
         let binLossCPU = LossFunctions.binLoss(yHat: yHatNorm, target: targetNorm, gains: gains, lambdaG: 0.01)
         let negBaseCPU = LossFunctions.negativeMarginLoss(yHat: yHatNorm, wrongTargets: wrongNorm, margin: 0.4)
         let negativeLossCPU = negBaseCPU * 0.5
-        let l1CPU: Float = zip(yHatNorm, targetNorm).reduce(0) { $0 + abs($1.0 - $1.1) }
+        let l1CPU: Float = zip(yHatNorm, targetNorm).reduce(Float(0)) { acc, pair in
+            acc + abs(pair.0 - pair.1)
+        }
 
         let stats = binStats(yHat)
 
@@ -314,7 +316,11 @@ final class FlowLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(gpu.yHatStatsMin, stats.min, accuracy: 1e-3)
         XCTAssertEqual(gpu.yHatStatsMax, stats.max, accuracy: 1e-3)
         XCTAssertEqual(gpu.nonzeroBins, stats.nonzero)
-        XCTAssertEqual(gpu.optionAccuracy, optionAccCPU, accuracy: 1e-3)
+        guard let optionAccGPU = gpu.optionAccuracy else {
+            XCTFail("expected optionAccuracy")
+            return
+        }
+        XCTAssertEqual(optionAccGPU, optionAccCPU, accuracy: 1e-3)
         XCTAssertEqual(gpu.gainDeltaMean, 0, accuracy: 1e-6)
         XCTAssertEqual(gpu.gainDeltaVariance, 0, accuracy: 1e-6)
     }
@@ -361,11 +367,11 @@ final class FlowLearningIntegrationTests: XCTestCase {
         }
 
         // Wrong targets: rotate by 1 and 2 bins
-        let wrong1 = Array(targets.dropFirst()) + [targets.first ?? 0]
-        let wrong2 = Array(wrong1.dropFirst()) + [wrong1.first ?? 0]
-        let wrongNorm = [normalize(wrong1), normalize(wrong2)]
+        let wrong1: [Float] = Array(targets.dropFirst()) + [targets.first ?? Float(0)]
+        let wrong2: [Float] = Array(wrong1.dropFirst()) + [wrong1.first ?? Float(0)]
+        let wrongNorm: [[Float]] = [normalize(wrong1), normalize(wrong2)]
 
-        var gains0: [Float] = [1.0, 0.9, 1.1, 1.05, 0.95, 1.2, 0.8, 1.0]
+        let gains0: [Float] = [1.0, 0.9, 1.1, 1.05, 0.95, 1.2, 0.8, 1.0]
         XCTAssertEqual(gains0.count, flowCfg.bins)
 
         let lr: Float = 0.02
@@ -496,8 +502,8 @@ final class FlowLearningIntegrationTests: XCTestCase {
             initialBins.append(Int32(FlowProjector.binIndex(theta: theta, bins: flowCfg.bins)))
         }
 
-        let wrong1 = Array(targets.dropFirst()) + [targets.first ?? 0]
-        let wrongNorm = [normalize(wrong1)]
+        let wrong1: [Float] = Array(targets.dropFirst()) + [targets.first ?? Float(0)]
+        let wrongNorm: [[Float]] = [normalize(wrong1)]
 
         let gains0: [Float] = [1.0, 0.9, 1.1, 1.05, 0.95, 1.2, 0.8, 1.0]
         let lr: Float = 0.02

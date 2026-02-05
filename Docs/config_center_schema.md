@@ -239,7 +239,28 @@ ui:
 
 ---
 
-## 8. Пример единого `Configs/baseline.yaml`
+## 8. Histogram Language
+
+```yaml
+histogram_language:
+  enabled: false
+  normalize_input: true
+  normalize_output: true
+  metrics: ["l1", "cosine"]  # допустимые: l1|l2|cosine
+  retrieval:
+    enabled: false
+    top_k: 1
+    corpus_path: "Artifacts/Corpora/histogram_corpus.jsonl"
+```
+
+- `metrics` — непустой список без неизвестных значений.
+- `normalize_input` и `normalize_output` только Bool.
+- `retrieval.corpus_path` обязателен, если `retrieval.enabled == true`.
+- `retrieval.top_k >= 1`.
+
+---
+
+## 9. Пример единого `Configs/baseline.yaml`
 
 ```yaml
 version: 1
@@ -377,16 +398,27 @@ ui:
   show_graph: true
   pipeline_snapshot_path: "Artifacts/pipeline_snapshot.json"
   metrics_poll_ms: 200
+
+histogram_language:
+  enabled: false
+  normalize_input: true
+  normalize_output: true
+  metrics: ["l1", "cosine"]
+  retrieval:
+    enabled: false
+    top_k: 1
+    corpus_path: "Artifacts/Corpora/histogram_corpus.jsonl"
 ```
 
 ---
 
-## 9. Правила валидации (коротко)
+## 10. Правила валидации (коротко)
 
 - Числовые параметры валидируются: `layers ≥ 1`, `nodes_per_layer ≥ 1`, `snn.parameter_count ≥ 1`, `0 < snn.decay < 1`, `0 < snn.threshold ≤ 1`, `delta_x_range.min ≥ 1`, `delta_y_range` содержит `0`, `alpha ∈ (0,1]`, `energy_floor ≥ 0`.
 - Строковые перечисления проверяются на допустимые значения.
 - Логи: override может ссылаться лишь на существующий `process_id`; для файловых назначений путь обязателен.
 - Совместимость модулей: `capsule.base == router.energy_constraints.energy_base`.
+- `histogram_language.metrics` непустой список из `l1|l2|cosine`, `retrieval.top_k ≥ 1`, `retrieval.corpus_path` обязателен при `retrieval.enabled == true`.
 - При headless режиме CLI может временно задать `ui.enabled=false`; ConfigCenter логирует это как событие `cli.main`.
 
 ---
